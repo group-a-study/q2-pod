@@ -92,6 +92,8 @@ HOOKS = {
     'mclLoadExLyric': (0x5aac90, 'ringnav_lyric', 'lyric'),
     # Now Playing's lyrics match (patch/onlinematch.c): LRCLIB first, then stock's Kugou search
     'kugou_obtainlyric': (0x510744, 'ringnav_lyric_search', 'kugou'),
+    # its ⋯ page: Download Album Lyrics under stock's Download Cover & Lyrics (onlinematch.c)
+    'playermore_page_init': (0x528c14, 'ringnav_playermore', 'playermore'),
     # its cover match: MusicBrainz/Cover Art Archive and iTunes candidates, then stock's Kugou search
     'kugou_obtaincover': (0x5112c4, 'ringnav_cover_search', 'kugoucover'),
     'mclPrevSong': (0x5ada98, 'ringnav_prev', 'prev'),
