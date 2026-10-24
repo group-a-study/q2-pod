@@ -2,6 +2,7 @@
 
 - **1.4.6**:
   - Lyrics: **Download Album Lyrics**, under Download Cover & Lyrics in Now Playing's ⋯ menu, saves synced lyrics from LRCLIB beside every song of the playing album, found the same way Download Cover & Lyrics finds them for one song. Songs that already have a .lrc file are left alone, a song LRCLIB lacks is skipped, and the row shows how far it has got; press it again to cancel. It carries on if you leave the menu, and stops for USB storage.
+  - Streaming: an app installed from **System settings → Apps** (Deezer, Soulseek, File Browser) shows its own icon again, instead of the shared square one, when it ships an `icon.png` (Legacy) or `icon-40.png` (iPod). In the Minimal theme the icon turns grey like Streaming's other icons; Classic keeps its colours.
 - **1.4.5**:
   - Buttons Lock works with the lock screen on again. 1.4.4 changed how the screen wakes to the lock screen, and with the lock screen on the locked buttons could act after the screen turned off. That change is gone: the screen wakes as it did in 1.4.3, the page you left shows for a moment, then the lock screen.
   - Snake: with the pause menu open the wheel picks Continue or Quit, as Previous and Next do. In play the wheel still does nothing.
