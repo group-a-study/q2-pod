@@ -2,6 +2,7 @@
 
 - **1.4.6**:
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
+  - Lyrics: **Download Cover & Lyrics** only asks LRCLIB now. Kugou's search, which often came back with another song's lyrics (Chinese lyrics for a song LRCLIB lacks), is gone, and so is NetEase's, which no longer finds anything. A song LRCLIB doesn't have gets no lyrics.
   - Lyrics: **Download Album Lyrics**, under Download Cover & Lyrics in Now Playing's ⋯ menu, saves synced lyrics from LRCLIB beside every song of the playing album, found the same way Download Cover & Lyrics finds them for one song. Songs that already have a .lrc file are left alone, a song LRCLIB lacks is skipped, and the row shows how far it has got; press it again to cancel. It carries on if you leave the menu, and stops for USB storage.
 
 - **1.4.5**:
