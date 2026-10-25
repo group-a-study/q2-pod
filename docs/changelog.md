@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.4.6**:
+  - Resume: after a Network Update, a TF card update or Restart, the Q2 comes back to the song and the second you were playing. Stock saved that place only when the Q2 powered off, so these went back to wherever it was at the last power-off, however long ago.
   - Battery: the crash watchdog checks every 10 s instead of 2 s, so it forks far less often; a crashed player still reboots within 10 s.
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - Streaming: an app installed from **System settings → Apps** (Deezer, Soulseek, File Browser) shows its own icon again, instead of the shared square one, when it ships an `icon.png` (Legacy) or `icon-40.png` (iPod). In the Minimal theme the icon turns grey like Streaming's other icons; Classic keeps its colours.
