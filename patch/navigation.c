@@ -363,14 +363,16 @@ typedef struct {
      * lyric_raw while their page holds the wheel's raw travel; lyric_held once the wheel or a drag
      * moved them; lyric_spun once the wheel moved them since it was let go; lyric_touch while a
      * finger is on Now Playing, 1 if it came down on the lyrics, lyric_drag_y the offset then; the
-     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves. */
-    int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
+     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves;
+     * lyric_mode, the Lyrics setting their layout is for, + 1 (lyric_apply). */
+    int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to,
+        lyric_mode;
     unsigned lyric_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
-        rounded;
-    void *setting_label[6];
+        rounded, lyrics;
+    void *setting_label[7];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1469,12 +1471,12 @@ static const char *const accent_names[] = {
 };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
- * 4 Shortcut, 5 Corners. */
-static const char *const setting_keys[] = { "ACCENT", "HOME",     "BATTERY",
-                                            "THEME",  "SHORTCUT", "ROUNDED" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2 };
-static int *const setting_values[] = { &st.accent,  &st.home_full, &st.battery,
-                                       &st.classic, &st.shortcut,  &st.rounded };
+ * 4 Shortcut, 5 Corners, 6 Lyrics. */
+static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "THEME",
+                                            "SHORTCUT", "ROUNDED", "LYRICS" };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 2 };
+static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
+                                       &st.shortcut, &st.rounded,   &st.lyrics };
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
@@ -1484,6 +1486,7 @@ static int accent(void) {
         st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
+        st.lyrics = config_value("IPOD", "LYRICS", 2, 0);   /* Enhanced unless chosen */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : st.minimal_accent;
@@ -1508,6 +1511,10 @@ int ipod_battery(void) {
     accent();
     return st.battery;
 } /* lockscreen.c's Large clock */
+int ipod_lyrics_enhanced(void) {
+    accent();
+    return !st.lyrics;
+} /* lyrics.c */
 /* 1 when Home shows its Rockbox row (coverflow_home_layout): the card has Rockbox. */
 int ipod_home_rockbox(void) {
     st.home_rockbox = rockbox_available();
@@ -2056,6 +2063,7 @@ int ringnav_paint(void *w, void *canvas) {
     paint_radio(w, canvas);
     paint_letter(w, canvas);
     paint_cover(w, canvas);
+    if (w && st.np_lrc && P(w, W_PARENT) == st.np_lrc) lyrics_paint(w, canvas);
     paint_caps(w, canvas);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
@@ -2851,94 +2859,166 @@ static void keep_selected(void *target) {
  * Plain text fills it a line each, at a time no track reaches, so the page stays at its top as
  * before a .lrc's first stamp. libtag_c's property calls are found from taglib_file_new's address,
  * which that call binds in demo's GOT. ponytail: no SYLT frame, and lines starting in its first
- * LYRIC_TAG_MAX bytes. */
+ * LYRIC_TAG_MAX bytes. iPod: the lines keep their milliseconds and A2 word stamps ("<mm:ss.xx>"
+ * before a word, cut from the text) for the lyrics page (lyrics.c), and so does a .lrc: its lines
+ * replace stock's, read alike. */
 #define LYRIC_TAG_MAX 65536
 extern int stock_lyric_trampoline(void);
 
-/* The "[mm:ss]" or "[mm:ss.xx]" stamps leading *s: each one's seconds into t (at most n of them),
- * *s moved past them all; how many. "[ar:Name]" and other bracketed text are no stamp. */
+/* A time at p between open and close: "[mm:ss]", "[mm:ss.xx]" or "[mm:ss:xx]" (A2's word stamps
+ * are "<mm:ss.xx>"). Its milliseconds into *ms and its end, else 0. */
+static char *lrc_time(char *p, char open, char close, int *ms) {
+    int mm = 0, ss = 0, frac = 0, scale = 100, digits = 0;
+    if (*p++ != open) return 0;
+    for (; *p >= '0' && *p <= '9' && digits < 4; ++digits) mm = mm * 10 + *p++ - '0';
+    if (!digits || *p++ != ':') return 0;
+    for (digits = 0; *p >= '0' && *p <= '9' && digits < 2; ++digits) ss = ss * 10 + *p++ - '0';
+    if (digits != 2 || ss > 59) return 0;
+    if (*p == '.' || *p == ':')
+        for (++p; *p >= '0' && *p <= '9'; ++p, scale /= 10) frac += (*p - '0') * scale;
+    if (*p++ != close) return 0;
+    *ms = (mm * 60 + ss) * 1000 + frac;
+    return p;
+}
+
+/* The stamps leading *s: each one's milliseconds into t (at most n of them), *s moved past them
+ * all; how many. "[ar:Name]" and other bracketed text are no stamp. */
 static int lrc_stamps(char **s, int *t, int n) {
-    int k = 0;
-    for (char *p = *s; *p == '[';) {
-        char *q = p + 1;
-        int mm = 0, ss = 0, digits = 0;
-        for (; *q >= '0' && *q <= '9' && digits < 4; ++digits) mm = mm * 10 + *q++ - '0';
-        if (!digits || *q++ != ':') break;
-        for (digits = 0; *q >= '0' && *q <= '9' && digits < 2; ++digits) ss = ss * 10 + *q++ - '0';
-        if (digits != 2 || ss > 59) break;
-        if (*q == '.' || *q == ':')
-            for (++q; *q >= '0' && *q <= '9';) ++q;
-        if (*q++ != ']') break;
-        if (k < n) t[k++] = mm * 60 + ss;
-        *s = p = q;
-    }
+    int k = 0, ms;
+    for (char *q; (q = lrc_time(*s, '[', ']', &ms)); *s = q)
+        if (k < n) t[k++] = ms;
     return k;
 }
 
-typedef struct {
-    int time, at;
-    const char *text;
-} lrc_line;
+/* s with its word stamps cut out, in place; when keep, each one's ms and byte offset into m (up to
+ * cap, counted in *n). */
+static void lrc_words(char *s, lrc_mark *m, unsigned cap, unsigned *n, int keep) {
+    char *text = s, *o = s, *q;
+    for (int ms; *s;)
+        if ((q = lrc_time(s, '<', '>', &ms))) {
+            if (keep && *n < cap) m[(*n)++] = (lrc_mark){ ms, (unsigned)(o - text) };
+            s = q;
+        } else
+            *o++ = *s++;
+    *o = 0;
+}
+
 static int lrc_order(const void *a, const void *b) {
     const lrc_line *x = a, *y = b;
     return x->time != y->time ? (x->time > y->time) - (x->time < y->time) : x->at - y->at;
 }
+
+/* text's lines, cut in place, into *lp and their word stamps (a line's only when it has one stamp)
+ * into *mp, both calloc'd for the caller to free: how many lines, -1 out of memory. */
+static int lrc_parse(char *text, lrc_line **lp, lrc_mark **mp) {
+    unsigned cap = 1, caps = 0, n = 0, nm = 0;
+    for (const char *s = text; *s && s - text < LYRIC_TAG_MAX; ++s) /* a line, or a stamp */
+        cap += *s == '\n' || *s == '\r' || *s == '[', caps += *s == '<';
+    lrc_line *l = *lp = calloc(cap, sizeof *l);
+    lrc_mark *m = *mp = caps ? calloc(caps, sizeof *m) : 0;
+    if (!l || (caps && !m)) return -1;
+    int synced = 0;
+    for (char *s = text; *s && s - text < LYRIC_TAG_MAX;) {
+        char *e = s, c, *line = s;
+        int t[8], k;
+        unsigned first;
+        while (*e && *e != '\n' && *e != '\r') ++e;
+        c = *e, *e = 0;
+        if ((k = lrc_stamps(&line, t, 8)) && !synced)
+            synced = 1, n = 0; /* LRC: the lines before go */
+        first = nm;
+        lrc_words(line, m, caps, &nm, k == 1);
+        for (int i = 0; i < (k ? k : !synced) && n < cap; ++i)
+            l[n] = (lrc_line){ k ? t[i] : LRC_FAR, (int)n, *line ? line : " ", first, nm - first },
+            ++n; /* " ": stock's for a stamp alone */
+        s = e + (c != 0) + (c == '\r' && e[1] == '\n');
+    }
+    if (synced) qsort(l, n, sizeof *l, lrc_order);
+    return (int)n;
+}
+
+/* l's n lines into stock's list at their whole seconds, after its own lines when not clear. */
+static void lrc_push(const lrc_line *l, unsigned n, int clear) {
+    struct {
+        int time;
+        const char *text;
+    } line;
+    pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
+    if (clear) deque_clear(P(MCL_LYRICS, 0));
+    for (unsigned i = 0; i < n; ++i) {
+        line.time = l[i].time == LRC_FAR ? LRC_FAR : l[i].time / 1000, line.text = l[i].text;
+        _deque_push_back(P(MCL_LYRICS, 0), &line);
+    }
+    pthread_mutex_unlock((void *)MCL_LYRIC_LOCK);
+}
+
+#if IPOD
+/* Stock's .lrc loader (0x5a9718, in mclLoadExLyric) opens the file it parses here (LYRIC_OPEN in
+ * tools/build.py), a UTF-8 copy when it was in another code page: its first LYRIC_TAG_MAX bytes
+ * wait for ringnav_lyric, which reads them again with their milliseconds and word stamps. */
+static char *lrc_file;
+void *ringnav_lrc_open(const char *path, const char *mode) {
+    void *f = fopen(path, mode), *g = f ? fopen(path, "rb") : 0;
+    free(lrc_file);
+    lrc_file = g ? calloc(1, LYRIC_TAG_MAX + 1) : 0;
+    if (lrc_file) fread(lrc_file, 1, LYRIC_TAG_MAX, g);
+    if (g) fclose(g);
+    return f;
+}
+#endif
+
 int ringnav_lyric(void) {
-    int ret = stock_lyric_trampoline();
-    void *q = P(mcl_pdeqplaylist, 0), *r;
+#if IPOD
+    free(lrc_file);
+    lrc_file = 0;
+#endif
+    int ret = stock_lyric_trampoline(), n = 0;
+    lrc_line *l = 0;
+    lrc_mark *m = 0;
+    char *file = 0, **v = 0;
+    unsigned lib = 0;
+    void *q = P(mcl_pdeqplaylist, 0), *r, *f = 0;
+#if IPOD
+    file = lrc_file;
+    lrc_file = 0;
+    if (file && mclGetLyricSize() > 0) { /* a .lrc's synced lines replace stock's */
+        n = lrc_parse(file + 3 * !memcmp(file, "\xef\xbb\xbf", 3), &l, &m);
+        if (n > 0 && l[0].time != LRC_FAR)
+            lrc_push(l, n, 1);
+        else
+            n = 0;
+    }
+#endif
     unsigned pos = (unsigned)I(MCL_POS, 0);
-    if (mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q ||
-        pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 || !P(r, REC_PATH) ||
-        *(char *)P(r, REC_PATH) != '/')
-        return ret;
-    void *f = taglib_file_new(P(r, REC_PATH), 0);
-    if (!f) return ret;
-    unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0), lib = at - TAGLIB_FILE_NEW;
-    char **(*get)(void *, const char *) =
-        (char **(*)(void *, const char *))(lib + TAGLIB_PROPERTY_GET);
-    char **v = 0; /* an unbound entry still holds demo's stub */
-    if (at != (unsigned)taglib_file_new) {
-        v = get(f, "LYRICS");
-        if (!v || !*v || !**v) {
-            if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
-            v = get(f, "UNSYNCEDLYRICS");
+    if (!(mclGetLyricSize() > 0 || (unsigned)(I(MCL_TYPE, 0) - 0xf1) < 2 || !q ||
+          pos >= deque_size(q) || !(r = deque_at(q, pos)) || I(r, REC_TYPE) != 8 ||
+          !P(r, REC_PATH) || *(char *)P(r, REC_PATH) != '/'))
+        f = taglib_file_new(P(r, REC_PATH), 0);
+    if (f) {
+        unsigned at = (unsigned)I(TAGLIB_NEW_GOT, 0);
+        char **(*get)(void *, const char *) =
+            (char **(*)(void *, const char *))((lib = at - TAGLIB_FILE_NEW) + TAGLIB_PROPERTY_GET);
+        if (at != (unsigned)taglib_file_new) { /* an unbound entry still holds demo's stub */
+            v = get(f, "LYRICS");
+            if (!v || !*v || !**v) {
+                if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
+                v = get(f, "UNSYNCEDLYRICS");
+            }
+        }
+        if (v && *v && **v && (n = lrc_parse(*v, &l, &m)) >= 0) {
+            lrc_push(l, n, 0);
+            ret = 1;
         }
     }
-    unsigned cap = 1, n = 0;
-    for (const char *s = v && *v ? *v : ""; *s && s - *v < LYRIC_TAG_MAX;
-         ++s) /* a line, or a stamp */
-        cap += *s == '\n' || *s == '\r' || *s == '[';
-    lrc_line *l = v && *v && **v ? calloc(cap, sizeof *l) : 0;
-    if (l) {
-        int synced = 0;
-        for (char *s = *v; *s && s - *v < LYRIC_TAG_MAX;) {
-            char *e = s, c, *text = s;
-            int t[8], k;
-            while (*e && *e != '\n' && *e != '\r') ++e;
-            c = *e, *e = 0;
-            if ((k = lrc_stamps(&text, t, 8)) && !synced)
-                synced = 1, n = 0; /* LRC: the lines before go */
-            for (int i = 0; i < (k ? k : !synced) && n < cap; ++i)
-                l[n] = (lrc_line){ k ? t[i] : 0x7fffffff, (int)n, *text ? text : " " },
-                ++n; /* " ": stock's for a stamp alone */
-            s = e + (c != 0) + (c == '\r' && e[1] == '\n');
-        }
-        if (synced) qsort(l, n, sizeof *l, lrc_order);
-        struct {
-            int time;
-            const char *text;
-        } line;
-        pthread_mutex_lock((void *)MCL_LYRIC_LOCK);
-        for (unsigned i = 0; i < n; ++i) {
-            line.time = l[i].time, line.text = l[i].text;
-            _deque_push_back(P(MCL_LYRICS, 0), &line);
-        }
-        pthread_mutex_unlock((void *)MCL_LYRIC_LOCK);
-        free(l);
-        ret = 1;
-    }
+#if IPOD
+    /* every load sends its synced lines, or none (the rows hold unsynced ones): never the last's */
+    lyrics_publish(l, n > 0 && l[0].time != LRC_FAR ? n : 0, m);
+#endif
     if (v) ((void (*)(char **))(lib + TAGLIB_PROPERTY_FREE))(v);
-    taglib_file_free(f);
+    if (f) taglib_file_free(f);
+    free(file);
+    free(l);
+    free(m);
     return ret;
 }
 
@@ -2947,8 +3027,22 @@ int ringnav_lyric(void) {
  * wheel stop, cut the top row. The content grows to the first row top at or past that end plus the
  * view: under a row of blank space below the last. A relayout (scroll_view's, 0x5f17a8) puts the
  * height back and clamps the offset; the next follow, tick or glide step pads it again. ponytail:
- * the wheel and a drag stop anywhere, so a row can be cut at the top until the page follows. */
+ * the wheel and a drag stop anywhere, so a row can be cut at the top until the page follows. iPod's
+ * lyrics page (lyrics.c) ends with its last line in the middle. */
+#if IPOD
+/* The offset that centres row i of lrc in its view. */
+static int lyric_centre(void *lrc, int i) {
+    void *row = widget_get_child(lrc, i);
+    return I(row, W_Y) + (I(row, W_H) - I(lrc, W_H)) / 2;
+}
+#endif
 static void lyric_pad(void *lrc) {
+#if IPOD
+    if (lyrics_on(lrc)) {
+        I(lrc, VIEW_CONTENT_H) = lyric_centre(lrc, widget_count_children(lrc) - 1) + I(lrc, W_H);
+        return;
+    }
+#endif
     int h = I(lrc, W_H), end = I(lrc, VIEW_CONTENT_H) - h, top = 1 << 30;
     for (int i = widget_count_children(lrc); i-- > 0;) {
         int t = I(widget_get_child(lrc, i), W_Y);
@@ -2998,12 +3092,14 @@ static void lyric_glide(void *lrc, int to) {
 /* The Now Playing timer's follow (LYRIC_FOLLOW in tools/build.py): stock scrolls to the row three
  * lines above the current one, which past the end clamps to it. iPod: lyrics the wheel or a finger
  * moved stay (lyric_held) until the page leaves them or another song starts, and a finger on the
- * screen keeps them too; on the page, the follow glides. */
+ * screen keeps them too; on the page, the follow glides. The lyrics page follows its own playing
+ * line (lyric_follow). */
 int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     lyric_pad(lrc);
 #if IPOD
     if (lrc == st.np_lrc) {
-        if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return 0;
+        if (st.lyric_held || lyrics_on(lrc) || window_manager_get_pointer_pressed(window_manager()))
+            return 0;
         if (lyrics_shown()) {
             lyric_glide(lrc, y * 16);
             return 0;
@@ -3018,11 +3114,13 @@ int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
  * g_forcerefresh_flag is set, as Play/Pause (playpause_quick_click) and the page's return to the
  * front do, and the rebuild ends at offset 0: the lyrics flicked to the top until the next follow.
  * The offset stays; the follow moves it if the line did. iPod: rows for another song than the last
- * rows' start at the top (lyric_top), whatever moved the old ones since the song changed. */
+ * rows' start at the top (lyric_top), whatever moved the old ones since the song changed, and they
+ * become the lyrics page's (lyrics_rows). */
 int ringnav_lyric_rows(void *win) {
     void *lrc = widget_lookup(win, "scroll_lrc", 1);
     int y = lrc ? I(lrc, SCROLL_Y) : 0, ret = ((int (*)(void *))0x529f0c)(win);
 #if IPOD
+    if (lrc && lrc == st.np_lrc && lyrics_rows(lrc)) lyric_pad(lrc);
     unsigned song = lrc && lrc == st.np_lrc ? np_track() : st.lyric_rows_song;
     if (song != st.lyric_rows_song) {
         st.lyric_rows_song = st.lyric_song = song;
@@ -3421,10 +3519,53 @@ static void lyric_snap(void *lrc) {
  * them as the wheel does; stock's scroll animation stops as it lands, so only the finger moves
  * them, and a swipe that brings the page in holds nothing. Leaving the page drops the hold; the
  * next follow, off the page, jumps to the current line. Another song starts at the top, its hold
- * gone. */
+ * gone. The lyrics page's rows are its lines, a tick's worth a line. */
 #define LYRIC_ROW_PX 20
+
+/* Display → Appearance → Lyrics on Now Playing's lyrics: Enhanced, the lyrics page's (lyrics.c),
+ * the rows full width after a blank LYRIC_SLOT; Normal, stock's 225 px rows, centred. Stock's rows
+ * as its init built them (built) become the page's; rows built the other way are built again, at
+ * the top. */
+static void lyric_apply(int built) {
+    void *lrc = st.np_lrc;
+    if (!lrc) return;
+    int on = ipod_lyrics_enhanced();
+    char layout[48];
+    st.lyric_mode = on + 1;
+    tk_snprintf(layout, sizeof layout, "list_view(x=%d,y=%d,s=0)", on ? 0 : (375 - 225) / 2,
+                on ? LYRIC_SLOT : 0);
+    widget_set_children_layout(lrc, layout);
+    if (!built) {
+        ringnav_lyric_rows(st.np_win);
+        if (!on) widget_layout_children(lrc);
+        lyric_top(lrc);
+    } else if (on && lyrics_rows(lrc))
+        lyric_pad(lrc);
+    else
+        widget_layout_children(lrc);
+}
+
+/* The lyrics page, every pass: its playing line centred, gliding there while the page shows, else
+ * jumping, unless the wheel or a finger holds them or a finger is on the screen. Its rows repaint
+ * while it is in front (front) and lit. */
+static void lyric_follow(void *lrc, int front, int shown) {
+    int line = lyrics_line(lrc, lyrics_now(), front && usable()),
+        to = lyric_centre(lrc, line > 0 ? line : 0);
+    if (to < 0) to = 0;
+    if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return;
+    lyric_pad(lrc);
+    if (shown) {
+        if (to * 16 != st.lyric_to || (!st.lyric_glide && I(lrc, SCROLL_Y) != to))
+            lyric_glide(lrc, to * 16);
+    } else if (I(lrc, SCROLL_Y) != to) {
+        lyric_still(lrc);
+        scroll_view_set_offset(lrc, I(lrc, SCROLL_X), to);
+    }
+}
+
 static void lyric_poll(void) {
     void *lrc = st.np_lrc, *wm = window_manager();
+    if (lrc && st.lyric_mode != ipod_lyrics_enhanced() + 1) lyric_apply(0);
     unsigned song = lrc ? np_track() : st.lyric_song;
     if (song != st.lyric_song) {
         st.lyric_song = song;
@@ -3457,7 +3598,8 @@ static void lyric_poll(void) {
         int y = I(lrc, SCROLL_Y),
             from = st.lyric_glide || (st.lyric_to + 8) >> 4 == y ? st.lyric_to : y * 16;
         /* x rises anticlockwise: back up the lyrics */
-        lyric_glide(lrc, from - travel * LYRIC_ROW_PX * 16 * wheel_pct() / (WHEEL_TICK_UNITS * 50));
+        int row = lyrics_on(lrc) ? LYRIC_SLOT : LYRIC_ROW_PX;
+        lyric_glide(lrc, from - travel * row * 16 * wheel_pct() / (WHEEL_TICK_UNITS * 50));
         st.lyric_spun = 1;
     }
     if (!page)
@@ -3466,6 +3608,8 @@ static void lyric_poll(void) {
         st.lyric_spun = 0;
         lyric_snap(lrc);
     }
+    if (lyrics_on(lrc))
+        lyric_follow(lrc, page && window_manager_get_top_window(wm) == st.np_win, shown);
     if (!shown)
         st.lyric_glide = 0;
     else if (st.lyric_glide)
@@ -3580,6 +3724,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
+    lyric_apply(1);                                  /* the rows stock's init built */
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
@@ -4075,14 +4220,16 @@ static void setting_text(int i) {
                                                   "Battery: Icon + Percent",
                                                   "Battery: Percent Inside" },
                              *const theme[] = { "Theme: Minimal", "Theme: Classic" },
-                             *const corners[] = { "Corners: Square", "Corners: Rounded" };
+                             *const corners[] = { "Corners: Square", "Corners: Rounded" },
+                             *const lyrics[] = { "Lyrics: Enhanced", "Lyrics: Normal" };
     accent(); /* reads the settings */
     const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
                                   home[st.home_full],
                                   battery[st.battery],
                                   theme[st.classic],
                                   (const char *)0,
-                                  corners[st.rounded] };
+                                  corners[st.rounded],
+                                  lyrics[st.lyrics] };
     char shortcut[64];
     if (i == 4) {
         tk_snprintf(shortcut, sizeof shortcut, "Shortcut: %s", ipod_home_shortcut());
@@ -4112,7 +4259,7 @@ static void settings_layout(void *w) {
 /* Centre or tap cycles the row's value and saves it. A new accent or theme reaches the payload's
  * drawing on the next paint, and the theme's colors and images once every cached image is dropped
  * and the screen repaints; Home takes its new layout and Streaming label at once (never
- * recreated), and an open Now Playing its progress bar. */
+ * recreated), and an open Now Playing its progress bar and its lyrics' way. */
 static int setting_click(void *ctx, void *event) {
     int i = (int)(long)ctx, minimal = !i && !ipod_classic();
     int *value = minimal ? &st.minimal_accent : setting_values[i];
@@ -4135,6 +4282,8 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
+    else if (i == 6)
+        lyric_apply(0); /* an open Now Playing's lyrics */
     else {
         if (i == 3) {
             coverflow_home_layout();
@@ -4218,10 +4367,11 @@ static int display_open(void *ctx, void *event) {
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into);
  * Appearance (iPod), Coverflow and Controls follow with the same widgets and styles, each opening
  * stock's page again (display_open) with its stock rows dropped and its own instead: Theme,
- * Accent, Corners, Home and Battery; Artist Albums, Coverflow Sort and Refresh Coverflow; Shortcut
- * (iPod), Hold Return and Wheel Sensitivity, the last opening its slider page (crossfade.c). The
- * value rows show it in the label and have no chevron, since they change in place.
- * ponytail: stock's page opened over itself; its own rows' state is never touched on a sub-page. */
+ * Accent, Corners, Home, Battery and Lyrics; Artist Albums, Coverflow Sort and Refresh Coverflow;
+ * Shortcut (iPod), Hold Return and Wheel Sensitivity, the last opening its slider page
+ * (crossfade.c). The value rows show it in the label and have no chevron, since they change in
+ * place. ponytail: stock's page opened over itself; its own rows' state is never touched on a
+ * sub-page. */
 int ringnav_display(void *win, void *ctx) {
     static const char *const titles[] = { 0, "Appearance", "Coverflow", "Controls" },
                              *const sub_icons[] = { 0, "system_display", "playset_covermode",
@@ -4247,13 +4397,14 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
 #if IPOD
-    /* Theme, Accent, Corners, Home, Battery; Shortcut. */
-    static const unsigned char appearance[] = { 3, 0, 5, 1, 2 }, controls[] = { 4 };
+    /* Theme, Accent, Corners, Home, Battery, Lyrics; Shortcut. */
+    static const unsigned char appearance[] = { 3, 0, 5, 1, 2, 6 }, controls[] = { 4 };
     static const char *const icons[] = { "system_display",      "playset_covermode",
                                          "system_powermanager", "system_display",
-                                         "playset_covermode",   "system_display" };
+                                         "playset_covermode",   "system_display",
+                                         "system_language" };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
-    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 5 : 1; k < n; ++k) {
+    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 6 : 1; k < n; ++k) {
         int i = rows[k];
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);

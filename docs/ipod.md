@@ -430,11 +430,8 @@ keeps its existing artist color. Long lines scroll, as stock.
 the label. There is no on-screen transport row: the buttons play, pause and skip.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
-with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
-each lyric line 225 pixels wide, and wraps a line wider than that. The lyrics' scroll view, which
-clips them, is 4 pixels wider on each side (`NP_LRC_GUTTER`, its list layout setting the rows that
-far in), because a letter's ink can reach up to 2 pixels past the width stock measures, as an f
-ending a line does; at the scroll view's edge a full line lost those pixels on either side. The info page's lines read `Label: value`, with spaced units
+with the lyrics or info page. The info page keeps its stock 225-pixel column, centred; the lyrics
+page spans the screen (**Lyrics** below). The info page's lines read `Label: value`, with spaced units
 (`35.92 MB`, `16-bit`, `950 kbps`, `44.1 kHz`), **Genre** and **Year** for stock's Genres and Era,
 `Unknown` for a missing value and `Location:` before the folder (`ringnav_np_info`, both builds). The play/pause overlay has zero opacity, retaining its original gesture target without
 a transport glyph; stock may update its visibility without making it appear. The loading
@@ -478,16 +475,32 @@ scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
 
-**Lyrics.** Stock already highlights the current line and scrolls to keep it in view. The top row is
-always whole: near the end the lines stop with up to a row of space below the last, not with the top
-one cut. On the
+**Lyrics.** With **Lyrics: Enhanced** (Display → Appearance, the default) the lyrics page shows
+three lines at most, large, as Apple Music's lyrics do: the playing line centred, the one before
+above it and the next below, its text `LYRIC_X` (16 pixels, as the art) from the left. Every line
+is 28 pixels; a long one wraps, at a space or beside a CJK character, onto as many rows as it
+takes, up to five (the rest cut), and each line is drawn twice a pixel apart, for weight. A line's
+row is its rows (31 pixels apart) plus the space between lines: `LYRIC_SLOT` (59 pixels) for one
+row, so three such lines fill the 178-pixel page, and a wrapped line in the middle leaves less of
+its neighbours in view. The playing line lights white (`LYRIC_LIT`) as it is sung, its unsung part grey
+(`LYRIC_DIM`, `#808080`); the other lines are darker (`LYRIC_REST`, `#5F5F5F`). Lyrics with word
+stamps (A2's enhanced LRC, `<mm:ss.xx>` before a word, in a .lrc or a LYRICS tag) light each word
+from its stamp to the next; lyrics timed by the line, as LRCLIB's are, light at a steady pace
+(`LYRIC_UNIT_MS`, 90 ms, a letter and three a CJK character, `LYRIC_MIN_MS` at least), done by the
+time the next line starts. Lines that start together, as a line and its translation, play
+together. Before the first line the first waits in the middle, unlit. Lines change at their
+hundredths of a second, by a clock of the page's own between the player's whole seconds. On the
 lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixel at a time as it
-turns and as far a turn as a row a tick, instead of changing the volume or scrubbing; a scrub under
-way ends first, as any other end does. While the finger stays on the wheel they stay exactly where
-it put them; let go, they glide to the nearest whole line. On the page, the follow to a new line
-glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
+turns and as far a turn as a line a tick, instead of changing the volume or scrubbing; a scrub
+under way ends first, as any other end does. While the finger stays on the wheel they stay
+exactly where it put them; let go, they glide to the nearest whole line. On the page, the follow
+to a new line glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
 highlight go on, until the page swipes away from them; back on the lyrics page they are on the
-current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod).
+current line again. Another song starts at the top. **Lyrics: Normal** keeps stock's lyrics page
+instead: its 225-pixel rows, centred, the current line in the accent, changing on whole seconds;
+the wheel, the hold and the glide work the same, a row a tick. Changing the setting
+rebuilds an open Now Playing's lyrics the other way, at the top. See
+[internals.md](internals.md#scrub-ipod) and [Word-timed lyrics](internals.md#word-timed-lyrics).
 
 ### Visualizer
 
@@ -567,7 +580,8 @@ drops the stock rows, takes the sub-page's title and builds only its own rows:
 - Appearance: "Theme: Minimal", "Accent: Graphite" and "Corners: Square" with the System settings
   Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
   Percent, Icon + Percent, Percent Inside; see [Status bar and clock](#status-bar-and-clock)) with
-  the power manager icon (`system_powermanager`).
+  the power manager icon (`system_powermanager`), and "Lyrics: Enhanced" (or Normal; see
+  [Now Playing](#now-playing)) with the language icon (`system_language`).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
   Coverflow ends with an All albums card, see
   [internals.md](internals.md#artist-albums-in-coverflow)), "Coverflow Sort: Album" and "Refresh
@@ -585,7 +599,7 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `HOME`, `BATTERY` and `THEME`. The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `HOME`, `BATTERY`, `THEME` and `LYRICS` (0 Enhanced, 1 Normal). The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line
