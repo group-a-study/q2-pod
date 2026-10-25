@@ -430,7 +430,10 @@ the label. There is no on-screen transport row: the buttons play, pause and skip
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
 with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
-each lyric line 225 pixels wide. The info page's lines read `Label: value`, with spaced units
+each lyric line 225 pixels wide, and wraps a line wider than that. The lyrics' scroll view, which
+clips them, is 4 pixels wider on each side (`NP_LRC_GUTTER`, its list layout setting the rows that
+far in), because a letter's ink can reach up to 2 pixels past the width stock measures, as an f
+ending a line does; at the scroll view's edge a full line lost those pixels on either side. The info page's lines read `Label: value`, with spaced units
 (`35.92 MB`, `16-bit`, `950 kbps`, `44.1 kHz`), **Genre** and **Year** for stock's Genres and Era,
 `Unknown` for a missing value and `Location:` before the folder (`ringnav_np_info`, both builds). The play/pause overlay has zero opacity, retaining its original gesture target without
 a transport glyph; stock may update its visibility without making it appear. The loading
@@ -477,11 +480,13 @@ The top row's text and icons, the bar's ends and the times keep clear of the cor
 **Lyrics.** Stock already highlights the current line and scrolls to keep it in view. The top row is
 always whole: near the end the lines stop with up to a row of space below the last, not with the top
 one cut. On the
-lyrics page, while the track has lyrics, the wheel scrolls them a row
-per tick, to the next row's top, instead of changing the volume or scrubbing; a scrub under way ends first, as any other end
-does. Both times, the bar and the highlight wait meanwhile, and 3 seconds (`SCRUB_MS`) after the
-last tick, or at a touch, the page follows the current line again; see
-[internals.md](internals.md#scrub-ipod).
+lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixel at a time as it
+turns and as far a turn as a row a tick, instead of changing the volume or scrubbing; a scrub under
+way ends first, as any other end does. While the finger stays on the wheel they stay exactly where
+it put them; let go, they glide to the nearest whole line. On the page, the follow to a new line
+glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
+highlight go on, until the page swipes away from them; back on the lyrics page they are on the
+current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod).
 
 ### Visualizer
 

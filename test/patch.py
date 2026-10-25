@@ -5496,13 +5496,18 @@ if variant=='ipod':
         elif end=='timeout': step(m,O['SCRUB_MS'],wait=True)
         else: assert step(m,O['KEY_RETURN'],gap=50)==11
         ended(m,[],end); passed()
-    # The lyrics page (slide value 1) with lyrics: the wheel scrolls scroll_lrc a row a tick, to the next
-    # or previous row's top (stock's rows are 20 px, 25 a wrapped line) within its content, ahead of scrub
-    # and the volume, with stock's timer (which re-pins the current line) stopped until SCRUB_MS after the
-    # last tick. Another page or no lyrics leaves the wheel on volume.
+    # The lyrics page (slide value 1) with lyrics. Each UI loop pass (ringnav_sleep) takes the wheel
+    # raw (wheel_raw: nothing ticks) and glides scroll_lrc by its travel, a pixel at a time: a tick's
+    # 28 units at 50% are a 20 px row, eased in over the passes, within the content padded to a row
+    # top. Stock's timer keeps the bar going, but its follow leaves lyrics the wheel moved where they
+    # are until the slide_view leaves the lyrics page or another song starts, at the top. Let go, the
+    # wheel snaps them to the nearest row top; until then a finger stays on it (wheel_held). Another
+    # page, no lyrics, another window, the screen off or a finger on the screen gives the wheel back
+    # to its ticks and the volume.
     ROWS=(20,50,20,20,25)+(20,)*7  # tops 0 20 70 90 110 ...; 275 px of content, at most 97 down
-    def lyric_page(page=1,size=9,lines=len(ROWS)):
-        m=scrub_page(); m.lyric_size=size
+    sleep_hook=HOOKS['main_loop_sleep_default'][0]
+    def lyric_page(page=1,size=9,lines=len(ROWS),config=None):
+        m=scrub_page(); m.lyric_size=size; m.handlers[sleep_hook+12]='stock_sleep'; m.config.update(config or {})
         rows=[m.node('label') for _ in range(lines)]
         for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
         m.lrc=m.node('scroll_view','scroll_lrc',rows)
@@ -5510,29 +5515,104 @@ if variant=='ipod':
         m.slide=m.node('slide_view','slide_view',[m.lrc],value=page)
         m.nodes[m.win]['children'].append(m.slide)
         assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0; m.calls=[]
+        m.word(payload_syms['wheel_held'],1)
         return m
+    def y(m): return m.get(m.lrc+O['SCROLL_Y'])
+    def raw(m): return m.get(payload_syms['wheel_raw'])
+    def loop(m,travel=None,ms=8):  # a UI loop pass ms on, the wheel turned travel raw units since the last
+        if travel is not None: m.word(payload_syms['wheel_travel'],travel&0xffffffff)
+        n=len(m.calls); m.advance(ms,clear=False); m.call(address=sleep_hook,args=(0x1234,0,0,0),gap=0,clear=False)
+        for name,seen in (('player_seek_time','seeks'),('playing_timer_start','starts')):
+            setattr(m,seen,getattr(m,seen,[])+[c[1] for c in m.calls[n:] if c[0]==name])
+        return y(m)
+    def settle(m,n=60): return [loop(m) for _ in range(n)]
+    def follow(m,to): m.call(address=payload_syms['ringnav_lyric_follow'],args=(m.lrc,0,to,10),gap=0,clear=False); return y(m)
     for kw in ({'page':0},{'size':0},{'lines':0}):
-        m=lyric_page(**kw); assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
+        m=lyric_page(**kw); loop(m); assert raw(m)==0 and m.get(payload_syms['wheel_travel'])==0
+        assert m.call()==0 and not did(m,'playing_timer_clear'),kw; passed()
+    # Clockwise (x falling) scrolls down: a tick's travel glides one row, never a jump, slowing in.
+    m=lyric_page(); assert loop(m)==0 and raw(m)==1; m.calls=[]
+    ys=[loop(m,-28)]+settle(m); steps=[b-a for a,b in zip([0]+ys,ys)]
+    assert ys[-1]==20 and 0<ys[0]<5 and all(0<=s<=4 for s in steps) and steps[-1]==0,ys
+    assert ('reset_poweroptions_timer',1,1,1) in [c[:4] for c in m.calls]  # the screen stays on
+    assert not did(m,'playing_timer_clear') and not did(m,'sleep_ms'); passed()  # nor does the loop idle
+    # A pixel's worth moves a pixel, fractions carried: three single units are 34/16 px.
+    for _ in range(3): loop(m,-1)
+    settle(m); assert y(m)==22; passed()
+    # A spin keeps gliding and stops at the padded end, a row top: 110 + 178, not 275 - 178 = 97.
+    for _ in range(60): loop(m,-12)
+    assert settle(m)[-1]==110 and m.get(m.lrc+O['VIEW_CONTENT_H'])==288; passed()
+    # Anticlockwise back up, to the top.
+    for _ in range(60): loop(m,12)
+    assert settle(m)[-1]==0; passed()
+    # Wheel Sensitivity sets the travel per row as per tick: 14 units at 100%.
+    m=lyric_page(config={'WHEELSENSITIVITY':'100'}); loop(m); loop(m,-14); assert settle(m)[-1]==20; passed()
+    # Held: stock's follow leaves them, also after SCRUB_MS, while the bar keeps going.
+    m=lyric_page(); loop(m); loop(m,-56); settle(m); assert y(m)==40
+    assert follow(m,0)==40; m.advance(O['SCRUB_MS']+1000); assert settle(m)[-1]==40 and follow(m,0)==40
+    assert not did(m,'playing_timer_clear') and not m.starts; passed()
+    # Swiped away, the hold goes and the follow jumps (stock's scroll_to) while the page is hidden;
+    # back on the page the follow glides.
+    m.nodes[m.slide]['value']=0; loop(m); assert raw(m)==0 and follow(m,70)==70
+    m.nodes[m.slide]['value']=1; loop(m); assert raw(m)==1 and follow(m,90)==70
+    ys=settle(m); assert ys[-1]==90 and ys[0]<90,ys; passed()
+    # Another song starts at the top, on the page or off it, the hold gone: its follow glides to its line.
+    for off in (0,1):
+        m=lyric_page(); loop(m); loop(m,-56); settle(m); assert follow(m,0)==40
+        if off: m.top=m.node('window','home_page')
+        m.word(O['MCL_POS'],2); assert loop(m)==0; m.top=m.win; loop(m)
+        follow(m,20); assert settle(m)[-1]==20; passed()
+    # The same song (its queue place and file) leaves them where they are.
+    m=lyric_page(); loop(m); loop(m,-56); settle(m); m.word(O['MCL_POS'],1); assert loop(m)==40 and follow(m,0)==40; passed()
+    # Let go, the wheel snaps them to the nearest row top, down or up, gliding; held, they stay.
+    m=lyric_page(); loop(m); loop(m,-36); assert settle(m,200)[-1]==26  # tops 0 20 70: 26 is nearer 20
+    m.word(payload_syms['wheel_held'],0); ys=settle(m); assert ys[-1]==20 and ys[0]>20,ys
+    m.word(payload_syms['wheel_held'],1); loop(m,-50); assert settle(m)[-1]==56  # nearer 70
+    m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==70 and follow(m,0)==70; passed()  # still held
+    # Let go during the glide, it snaps from the glide's target; a still finger let go moves nothing.
+    m=lyric_page(); loop(m); loop(m,-36); m.word(payload_syms['wheel_held'],0); assert settle(m)[-1]==20
+    m.word(payload_syms['wheel_held'],1); m.word(m.lrc+O['SCROLL_Y'],30); loop(m); m.word(payload_syms['wheel_held'],0)
+    assert settle(m)[-1]==30; passed()  # not the wheel's doing: no snap
+    # Another window, the screen off, a finger down or no lyrics hand the wheel back to the ticks,
+    # dropping travel from before; on the page again the wheel is the lyrics' once more.
+    def other(m): m.top=m.node('window','home_page')
+    def back(m): m.top=m.win
+    def dark(m,on=0): m.byte(syms['g_backlight_status'],on)
+    def touch(m,on=1): m.pressed=on
+    def bare(m,on=0): m.lyric_size=9 if on else 0
+    for off,on in ((other,back),(dark,lambda m: dark(m,1)),(touch,lambda m: touch(m,0)),(bare,lambda m: bare(m,1))):
+        m=lyric_page(); loop(m); assert raw(m)==1
+        off(m); loop(m,-28); settle(m); assert raw(m)==0 and y(m)==0,off
+        m.word(payload_syms['wheel_travel'],-99&0xffffffff); on(m); loop(m); assert raw(m)==1 and settle(m)[-1]==0,off
+        loop(m,-28); assert settle(m)[-1]==20,off; passed()
+    # A finger that drags them holds them as the wheel does; the follow waits while it is down. A tap
+    # that moves nothing holds nothing.
+    m=lyric_page(); loop(m); m.pressed=1; loop(m); m.word(m.lrc+O['SCROLL_Y'],40)
+    assert follow(m,0)==40; m.pressed=0; loop(m); assert follow(m,0)==40 and settle(m)[-1]==40; passed()
+    m=lyric_page(); loop(m); m.pressed=1; loop(m); m.pressed=0; loop(m); follow(m,20); assert settle(m)[-1]==20; passed()
+    m=lyric_page(); loop(m); m.top=m.node('window','home_page'); m.pressed=1; loop(m); m.word(m.lrc+O['SCROLL_Y'],40)
+    m.pressed=0; loop(m); m.top=m.win; loop(m); follow(m,0); assert settle(m)[-1]==0; passed()  # another window's touch
+    # A tick (before a pass took the wheel raw) glides to the next or previous row's top, quick ticks
+    # adding up from the glide's target, ahead of scrub and the volume.
     m=lyric_page()
-    assert step(m)==11 and m.get(m.lrc+O['SCROLL_Y'])==20 and did(m,'playing_timer_clear')==[m.win]
+    assert step(m)==11 and y(m)==0 and settle(m)[-1]==20
     ys=[]
-    for _ in range(5): assert step(m,gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
-    assert ys==[70,90,110,110,110] and not did(m,'playing_timer_clear'),ys  # row tops, the last the end's
-    assert m.get(m.lrc+O['VIEW_CONTENT_H'])==288  # padded: 110 + 178, not 275 - 178 = 97 cutting a row
-    ys=[]
-    for _ in range(5): assert step(m,O['KEY_PREV'],gap=200)==11; ys.append(m.get(m.lrc+O['SCROLL_Y']))
-    assert ys==[90,70,20,0,0] and not m.starts,ys
-    step(m,O['SCRUB_MS']-1,wait=True); assert not m.starts
-    step(m,1,wait=True); assert m.starts==[m.win] and not m.timers and m.seeks==[]; passed()
-    # A scrub begun on the lyrics page ends at the next tick, committing once, and the tick scrolls.
+    for _ in range(5): assert step(m,gap=200)==11; ys.append(settle(m)[-1])
+    assert ys==[70,90,110,110,110],ys
+    for _ in range(3): assert step(m,O['KEY_PREV'],gap=200)==11
+    assert settle(m)[-1]==20 and not did(m,'playing_timer_clear') and not m.starts and follow(m,0)==20; passed()
+    # A scrub begun on the lyrics page ends at the next tick, committing once, and the tick scrolls;
+    # the seek's settle wait brings stock's timer back.
     m=lyric_page(); centre(m); m.nodes[m.slide]['value']=0; step(m); m.nodes[m.slide]['value']=1
-    assert step(m)==11 and m.seeks==[105] and m.get(m.lrc+O['SCROLL_Y'])==20
-    step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win] and not m.timers; passed()  # lyrics drop the settle wait
-    # Touch ends it at once; the page's destruction keeps stock's timer off.
-    m=lyric_page(); step(m); step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
-    assert m.starts==[m.win] and not m.timers; passed()
-    m=lyric_page(); step(m); f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
-    assert not m.starts and not m.timers; passed()
+    assert step(m)==11 and m.seeks==[105] and settle(m)[-1]==20
+    step(m,O['SCRUB_MS'],wait=True); assert m.starts==[m.win] and not m.timers; passed()
+    # The scrub's own touch end (np_cancel) keeps the hold; the page's destruction drops it and the
+    # wheel's raw travel.
+    m=lyric_page(); loop(m); loop(m,-28); settle(m)
+    step(m,address=HOOKS['on_wm_tsdown_before_fun'][0],event_type=O['EVT_POINTER_DOWN'],gap=50)
+    assert follow(m,0)==20 and not m.starts and not m.timers; passed()
+    f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
+    loop(m); assert raw(m)==0 and not m.starts and not m.timers; passed()
 
 # Lyrics from tags (navigation.c ringnav_lyric): stock's loader (mocked) runs first; only when it left no
 # lines for a local song does TagLib open the file, LYRICS then UNSYNCEDLYRICS, a line each into stock's
@@ -5594,6 +5674,72 @@ assert m.load()==1 and m.lines==[(3,'One'),(12,'Two'),(20,'Both'),(30,' '),(62,'
 # Bracketed text that is no stamp leaves the lyrics plain.
 m=LyricMachine({'LYRICS':'[Chorus]\nLa la\n[1:2]\n[00:61]x'}); assert m.load()==1
 assert m.lines==[(FAR,'[Chorus]'),(FAR,'La la'),(FAR,'[1:2]'),(FAR,'[00:61]x')],m.lines; passed()
+
+# Download Album Lyrics (onlinematch.c ringnav_playermore): after stock's 8 ⋯ rows (its init mocked), one
+# more in stock's row widgets and 20 px label, under Download Cover & Lyrics (PLAYMORE_ROWS' kind 4), its
+# button unnamed so stock's row click (an atoi of the name) never sees it; only for a playing song on the
+# card with an album. A press asks for Wi-Fi first, copies the album's tracks off stock's records (a CUE
+# track left out) and starts the worker; the row shows its progress, a press while it runs cancels, the
+# page's end leaves it running, and the timer joins it and toasts the summary. USB storage stops it quietly.
+# The job's own steps are test/peq.py's album_check.
+assert [m.get(O['PLAYMORE_ROWS']+4*i) for i in range(O['PLAYMORE_COUNT'])]==[2,3,4,5,6,7,0,1]  # Download Cover & Lyrics third
+class AlbumLyricsMachine(CoverflowMachine):
+    def __init__(self,**queue):
+        super().__init__(**queue); self.wifi=3; self.restack=True; self.accessed=[]
+        self.handlers[int(manifest['patch_symbols']['stock_playermore_trampoline'],16)]='stock_playermore'
+        self.handlers[syms['get_wifisignal']]='al:get_wifisignal'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='c:access@GLIBC_2.0': self.accessed.append(self.text(u.reg_read(REGS[0])))
+        if name!='al:get_wifisignal': return super().hook(u,address,size,unused)
+        self.returns(self.wifi,clobber=True)
+    def playing(self): return self.items(self.get(syms['mcl_pdeqplaylist']))[0]
+    def more(self,rows=8):
+        self.stock=[self.node('list_item') for _ in range(rows)]
+        view=self.node('scroll_view','scroll_view_more',list(self.stock)); self.top=self.node('window','playermore_page',[view])
+        assert self.call(address=HOOKS['playermore_page_init'][0],args=(self.top,0,0,0),gap=0)==0
+        assert self.calls[0][:2]==('stock_playermore',self.top)
+        return self.nodes[view]['children']
+m=AlbumLyricsMachine(); kids=m.more(); row=kids[3]
+assert len(kids)==9 and [k for k in kids if k!=row]==m.stock and m.nodes[row]['style']=='s_listitem_black'
+button=m.nodes[row]['children'][0]; icon,label=m.nodes[button]['children']
+assert m.nodes[button]['style']=='s_btn_listitem' and not m.nodes[button].get('name')
+assert [m.get(button+O[k]) for k in ('W_X','W_Y','W_W','W_H')]==[20,0,335,70]
+assert m.nodes[icon]['image']=='player_onlinesearch' and [m.get(icon+O[k]) for k in ('W_X','W_W','W_H')]==[10,52,70]
+assert m.nodes[label]['style']=='s_scrlabel_white20l' and m.nodes[label]['text']=='Download Album Lyrics'
+assert [m.get(label+O[k]) for k in ('W_X','W_W','W_H')]==[72,253,70]; passed()
+m=AlbumLyricsMachine(cls=0xf1); assert len(m.more())==8; passed()  # an online queue
+for off,v in (('REC_TYPE',4),('REC_ALBUM',0),('REC_PATH',0)):  # a folder, no album tag, no path
+    m=AlbumLyricsMachine(); m.word(m.playing()+O[off],v); assert len(m.more())==8,off; passed()
+m=AlbumLyricsMachine(); m.word(m.playing()+O['REC_PATH'],m.string('http://x/y')); assert len(m.more())==8; passed()
+m=AlbumLyricsMachine(); assert len(m.more(7))==7; passed()  # not stock's rows: left as they are
+def album_lyrics_page(**queue):
+    m=AlbumLyricsMachine(**queue); button=m.nodes[m.more()[3]]['children'][0]; label=m.nodes[button]['children'][1]
+    cue=m.song('Cue'); m.word(cue+O['REC_CUE_END'],90)
+    m.found=[m.song('T1'),cue,m.song('T2')]
+    def press():
+        f,ctx=m.handler(button,O['EVT_CLICK']); assert m.call(address=f,args=(ctx,m.event,0,0),gap=0,count=5_000_000)==0
+    return m,label,press
+m,label,press=album_lyrics_page()
+m.wifi=-1; press(); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; m.wifi=3
+press(); assert len(m.threads)==1 and m.nodes[label]['text']=='Downloading 1 of 2'
+worker,arg=m.threads[-1]; press(); assert len(m.threads)==1  # a second press: cancelling, no second job
+assert m.nodes[label]['text']=='Cancelling…'; passed()
+m,label,press=album_lyrics_page(); press(); worker,arg=m.threads[-1]
+m.advance(500,clear=False); assert ('reset_poweroptions_timer',1,1,0) in [c[:4] for c in m.calls] and m.nodes[label]['text']=='Downloading 1 of 2'
+f,ctx=m.handler(label,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)  # the page closes: the job goes on
+m.missing=False; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0
+assert m.accessed==['/p/T1','/p/T1.lrc','/p/T2','/p/T2.lrc'],m.accessed  # each song's own .lrc found: none fetched
+n=len(m.toasts); m.advance(500,clear=False)
+assert len(m.toasts)==n+1 and m.toasts[-1][3]=='Album lyrics: 2 already had lyrics' and m.joins==[77]; passed()
+press_count=len(m.threads); m.advance(1000); assert len(m.threads)==press_count and len(m.toasts)==n+1; passed()  # the timer has ended
+m,label,press=album_lyrics_page(); press(); worker,arg=m.threads[-1]; press()  # cancelled before its first song
+assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=5_000_000)==0 and not m.accessed
+m.advance(500,clear=False); assert m.toasts[-1][3]=='Cancelled' and m.nodes[label]['text']=='Download Album Lyrics'; passed()
+m,label,press=album_lyrics_page(); press(); worker,arg=m.threads[-1]; n=len(m.toasts)
+assert m.call(address=payload_syms['album_lyrics_stop'],args=(0,0,0,0),gap=0)==0 and m.joins==[77]  # USB storage: joined first
+m.advance(500,clear=False); assert len(m.toasts)==n and m.nodes[label]['text']=='Download Album Lyrics'; passed()
+m.found=[]; press(); assert m.toasts[-1][3]=='No album songs on the card' and len(m.threads)==1; passed()
 
 # Sparse populated initials: one destination per sustained tick, both directions, utilities
 # and wrap edges. Album and Artist share article handling; nonalphabetical sorts stay single-step.
@@ -9143,6 +9289,111 @@ assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.row(0); m.code=0; m.worker(); assert m.labels()==['Directory unavailable'] and 'bycountrycodeexact/TW?' in m.opts[10002]
 m.back(); assert m.labels()==['Countries','Taiwan, Republic Of China','Germany']
 m.back(); m.calls=[]; m.back(); assert 'navigator_back' in [c[0] for c in m.calls]; m.close(); passed()
+
+# Download Cover & Lyrics' lyrics (onlinematch.c ringnav_lyric_search, at kugou_obtainlyric's entry): LRCLIB
+# alone. keyinfo's title and artist are searched; the first result with synced lyrics goes to out with a BOM,
+# less its opening credits. None found, the names without accents are searched, if that changes them; a busy
+# reply is asked again, three requests in all. Found or not, it returns 1, so online_lyricthd skips NetEase,
+# and Kugou's own search (past the entry's jump) never runs. demo's cJSON is stood in for by Python's json.
+class LyricSearchMachine(RadioMachine):
+    def __init__(self):
+        super().__init__(); self.written={}; self.json={}
+        for n in ('fopen@GLIBC_2.2','fputs@GLIBC_2.0','fclose@GLIBC_2.2','cJSON_Parse','cJSON_GetArraySize',
+                  'cJSON_GetArrayItem','cJSON_GetObjectItem','cJSON_Delete'):
+            self.handlers[syms[n]]='ls:'+n
+        self.handlers[HOOKS['kugou_obtainlyric'][0]+12]='ls:kugou'  # past the hook's jump: Kugou's search itself
+        self.handlers.pop(syms['online_getkeyword_info'],None)  # stock's copy of keyinfo runs, under its (mocked) lock
+        self.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
+    def item(self,v):
+        a=self.alloc(0x30); self.json[a]=v; self.word(a+16,self.string(v) if isinstance(v,str) else 0); return a  # +16: valuestring
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name=='r:curl_easy_perform': self.reply=self.replies.pop(0) if self.replies else b'[]'; self.urls.append(self.opts[10002])
+        if not name.startswith('ls:'): return super().hook(u,address,size,unused)
+        name=name[3:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='fopen': self.fpath=self.text(a); self.written[self.fpath]=b''; ret=0x2000100
+        elif name=='fputs': self.written[self.fpath]+=self.raw(a)
+        elif name=='cJSON_Parse': ret=self.item(json.loads(self.text(a)))
+        elif name=='cJSON_GetArraySize': ret=len(self.json[a])
+        elif name=='cJSON_GetArrayItem': ret=self.item(self.json[a][b])
+        elif name=='cJSON_GetObjectItem': v=self.json[a]; key=self.text(b); ret=self.item(v[key]) if isinstance(v,dict) and key in v else 0
+        self.calls.append((name,a,b,c))
+        self.returns(ret,clobber=True)
+    def search(self,title,artist,*replies,code=200):
+        """replies: one a request, in turn (then [])."""
+        key=0xa40424  # stock's keyinfo: file name, title (+0x200), album (+0x400), artist (+0x500)
+        self.u.mem_write(key,bytes(0x600)); self.u.mem_write(key+0x200,title.encode()); self.u.mem_write(key+0x500,artist.encode())
+        self.replies,self.code,self.written,self.calls,self.urls=list(replies),code,{},[],[]
+        # Each request's 512 KB reply buffer is freed, but the mock's free keeps it: start over, zeroed as calloc's.
+        self.u.mem_write(BIG,bytes(self.big-BIG)); self.big=BIG
+        return self.call(address=HOOKS['kugou_obtainlyric'][0],args=(self.string(f'{title}/{artist}'),self.string('/tmp/oslyric_7'),0,0),gap=0,count=5_000_000)
+m=LyricSearchMachine()
+found=json.dumps([{'syncedLyrics':None,'plainLyrics':'x'},{'syncedLyrics':'[00:00.00] Lyrics : A\n[00:12.00]Look at the stars'},
+                  {'syncedLyrics':'[00:01.00]Second'}]).encode()
+stars='﻿[00:12.00]Look at the stars'.encode()  # the first synced result, its credit cut
+LRCLIB='https://lrclib.net/api/search?track_name=%s&artist_name=%s'
+busy=b'{"message":"The server is busy, please retry in a moment","name":"ServerOverloaded","statusCode":503}'
+def kugou(): return 'kugou' in [c[0] for c in m.calls]
+assert m.search('Yellow','Coldplay',found)==1 and m.urls==[LRCLIB%('Yellow','Coldplay')] and m.written=={'/tmp/oslyric_7':stars}
+assert m.search('Yellow','Coldplay',b'[]')==1 and len(m.urls)==1 and not m.written and not kugou()  # nothing to fold
+# Hataałii: none under its own name, so its folded one, Hataalii; an instrumental counts as none.
+plain=LRCLIB%('Rains%20Over%20Dzil','Hataalii')
+assert m.search('Rains Over Dził','Hataałii',b'[]',found)==1 and m.urls[1:]==[plain] and m.written=={'/tmp/oslyric_7':stars}
+assert m.urls[0]==LRCLIB%('Rains%20Over%20Dzi%C5%82','Hataa%C5%82ii')
+for none in (b'[]',json.dumps([{'syncedLyrics':None,'instrumental':True}]).encode()):
+    assert m.search('Rains Over Dził','Hataałii',none,none)==1 and len(m.urls)==2 and not m.written and not kugou()
+# Busy: asked again, three requests at most, the fold only after an answer; offline: one request.
+assert m.search('Yellow','Coldplay',busy,found)==1 and len(m.urls)==2 and m.written=={'/tmp/oslyric_7':stars}
+assert m.search('Rains Over Dził','Hataałii',b'[]',busy,b'[]',found)==1 and m.urls[1::2]==[plain,plain] and m.written
+assert m.search('Yellow','Coldplay',busy,busy,busy,found)==1 and len(m.urls)==3 and not m.written and not kugou()
+assert m.search('Yellow','Coldplay',found,code=0)==1 and len(m.urls)==1 and not m.written and not kugou()
+assert m.search('','Coldplay',found)==1 and not m.written and not m.urls; passed()  # no title: no request
+
+# Its accept (onlinematch.c ringnav_lyric_save, at LYRIC_SAVE_CALL): stock's snprintf of cp -rf /tmp/oslyric_N
+# "/mnt/mmc/.downpic/<name>" for system() becomes a copy beside the song, through .part, as Download Album Lyrics
+# saves, the .downpic copy stock's loader would show first goes, and system() gets ":". The song is the queue's
+# whose file name stock turns into name. Not in the queue, a CUE track's, or a card that can't be written: stock's.
+from build import LYRIC_SAVE_CALL
+class LyricSaveMachine(AlbumLyricsMachine):
+    def __init__(self,files):
+        super().__init__(); self.files=dict(files); self.open_files={}; self.unlinked=[]; self.fail_write=False
+        for n in ('fopen@GLIBC_2.2','fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0','unlink@GLIBC_2.0'):
+            self.handlers[syms[n]]='lv:'+n
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('lv:'): return super().hook(u,address,size,unused)
+        name=name[3:].split('@')[0]; a,b,c,d=[u.reg_read(r) for r in REGS]; ret=0
+        if name=='fopen':
+            path,mode=self.text(a),self.text(b)
+            if mode=='rb' and path in self.files or mode=='wb' and not self.fail_write:
+                ret=0x2000000+16*len(self.open_files); self.open_files[ret]=[path,mode,0,b'']
+        elif name=='fread':
+            f=self.open_files[d]; data=self.files[f[0]][f[2]:f[2]+b*c]; f[2]+=len(data); u.mem_write(a,data); ret=len(data)//b
+        elif name=='fwrite': self.open_files[d][3]+=bytes(u.mem_read(a,b*c)); ret=c
+        elif name=='fclose':
+            path,mode,_,data=self.open_files.pop(a)
+            if mode=='wb': self.files[path]=data
+        elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
+        elif name=='unlink': self.unlinked.append(self.text(a)); self.files.pop(self.text(a),None)
+        self.returns(ret,clobber=True)
+    def save(self,name):
+        cmd=self.alloc(0x400); fmt=0x772630  # stock's cp -rf %s "/mnt/mmc/.downpic/%s"
+        self.call(address=payload_syms['ringnav_lyric_save'],args=(cmd,0x400,fmt,self.string('/tmp/oslyric_7')),stack=(self.string(name),),gap=0)
+        return self.text(cmd)
+assert m.text(0x772630)=='cp -rf %s "/mnt/mmc/.downpic/%s"' and m.get(LYRIC_SAVE_CALL)==jal(payload_syms['ringnav_lyric_save'])
+LRC=b'\xef\xbb\xbf[00:12.00]Look at the stars\n'*700  # over one 4 KB read
+def lyric_save(**rec):
+    m=LyricSaveMachine({'/tmp/oslyric_7':LRC,'/mnt/mmc/.downpic/01 Yellow.lrc':b'[00:00.00]Kugou'}); r=m.playing()
+    for off,v in (('REC_NAME','01 Yellow.flac'),('REC_PATH','/mnt/mmc/Coldplay/01 Yellow.flac'))+tuple(rec.items()):
+        m.word(r+O[off],m.string(v) if isinstance(v,str) else v)
+    return m
+stock='cp -rf /tmp/oslyric_7 "/mnt/mmc/.downpic/01 Yellow.lrc"'
+m=lyric_save(); assert m.save('01 Yellow.lrc')==':' and m.files['/mnt/mmc/Coldplay/01 Yellow.lrc']==LRC
+assert m.unlinked==['/mnt/mmc/.downpic/01 Yellow.lrc'] and '/mnt/mmc/.downpic/01 Yellow.lrc' not in m.files
+assert not [p for p in m.files if p.endswith('.part')]; passed()
+m=lyric_save(); assert m.save('02 Other.lrc')==stock.replace('01 Yellow','02 Other') and not m.unlinked; passed()  # not in the queue
+m=lyric_save(REC_CUE_END=90); assert m.save('01 Yellow.lrc')==stock and '/mnt/mmc/Coldplay/01 Yellow.lrc' not in m.files; passed()
+m=lyric_save(); m.fail_write=True; assert m.save('01 Yellow.lrc')==stock and '/mnt/mmc/.downpic/01 Yellow.lrc' in m.files; passed()  # can't write the card
 
 # Spotify's browser (patch/spotify.c, docs/librespot.md's Q2SPOT/1): the row opens spotbrowse_page,
 # each level a request on the fork's --browse-socket, sent and read on a pthread.
