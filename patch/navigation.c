@@ -2914,6 +2914,30 @@ static void lyric_pad(void *lrc) {
 #if IPOD
 static unsigned np_track(void);
 
+/* TEST BUILD ONLY, never for a PR: the lyrics page's state, a line a second while Now Playing is
+ * open (ldiag_poll), and the follow's, rebuild's and glide's counts since the last line, to
+ * LDIAG_FILE, up to LDIAG_MAX bytes. */
+#define LDIAG_FILE "/mnt/mmc/q2pod-lyrics.log"
+#define LDIAG_MAX (256 * 1024)
+static struct {
+    unsigned at, bytes, follow, early, glide, scroll, rows, tops, steps, top_win;
+    int fy, fret, on;
+} ld __attribute__((section(".scratch")));
+/* With a card in (stock's /tmp/mmc_add, looked for once). */
+static int ldiag_on(void) {
+    if (!ld.on) ld.on = access("/tmp/mmc_add", 0) ? 2 : 1;
+    return ld.on == 1;
+}
+static void ldiag(const char *line) {
+    unsigned n = strlen(line);
+    if (!ldiag_on() || ld.bytes + n > LDIAG_MAX) return;
+    void *f = fopen(LDIAG_FILE, "ab");
+    if (!f) return;
+    fwrite(line, 1, n, f);
+    fclose(f);
+    ld.bytes += n;
+}
+
 /* The lyrics page in front: Now Playing on top, lit, not sliding and untouched, on the lyrics. */
 static int lyrics_shown(void) {
     void *wm = window_manager();
@@ -2935,6 +2959,7 @@ static void lyric_still(void *lrc) {
 /* Another song: its lyrics at the top, nothing held or gliding, and stock's animator, which would
  * carry them on to where the last song's follow sent them, stopped. */
 static void lyric_top(void *lrc) {
+    ++ld.tops;
     st.lyric_held = st.lyric_spun = st.lyric_glide = st.lyric_to = 0;
     lyric_still(lrc);
     scroll_view_set_offset(lrc, I(lrc, SCROLL_X), 0);
@@ -2956,16 +2981,25 @@ static void lyric_glide(void *lrc, int to) {
 int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
     lyric_pad(lrc);
 #if IPOD
+    ++ld.follow;
+    ld.fy = y;
     if (lrc == st.np_lrc) {
-        if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) return 0;
+        if (st.lyric_held || window_manager_get_pointer_pressed(window_manager())) {
+            ++ld.early;
+            return 0;
+        }
         if (lyrics_shown()) {
+            ++ld.glide;
             lyric_glide(lrc, y * 16);
             return 0;
         }
         st.lyric_glide = 0;
     }
-#endif
+    ++ld.scroll;
+    return ld.fret = scroll_view_scroll_to(lrc, x, y, ms);
+#else
     return scroll_view_scroll_to(lrc, x, y, ms);
+#endif
 }
 
 /* The page's refresh rebuilds scroll_lrc's rows (0x529f0c, LYRIC_ROWS in tools/build.py) whenever
@@ -2977,6 +3011,7 @@ int ringnav_lyric_rows(void *win) {
     void *lrc = widget_lookup(win, "scroll_lrc", 1);
     int y = lrc ? I(lrc, SCROLL_Y) : 0, ret = ((int (*)(void *))0x529f0c)(win);
 #if IPOD
+    ++ld.rows;
     unsigned song = lrc && lrc == st.np_lrc ? np_track() : st.lyric_rows_song;
     if (song != st.lyric_rows_song) {
         st.lyric_rows_song = st.lyric_song = song;
@@ -3335,6 +3370,7 @@ static void lyric_hold(void) {
  * pixel, so it eases in whatever the loop's pace, and quick wheel travel adds up. */
 #define LYRIC_EASE_MS 50
 static void lyric_step(void *lrc) {
+    ++ld.steps;
     unsigned now = (unsigned)time_now_ms();
     int dt = (int)(now - st.lyric_at);
     st.lyric_at = now;
@@ -3360,6 +3396,44 @@ static void lyric_snap(void *lrc) {
         if ((top > at ? top - at : at - top) < (to > at ? to - at : at - to)) to = top;
     }
     lyric_glide(lrc, to);
+}
+
+/* TEST BUILD ONLY: a line a second while Now Playing is open, and one whenever the top window
+ * changes. */
+static void ldiag_poll(void) {
+    if (ld.on == 2) return;
+    void *wm = window_manager(), *top = window_manager_get_top_window(wm);
+    unsigned now = (unsigned)time_now_ms(), top_win = (unsigned)(unsigned long)top;
+    if ((!st.np_win && top_win == ld.top_win) || (top_win == ld.top_win && now - ld.at < 1000))
+        return;
+    if (!ldiag_on()) return;
+    ld.at = now;
+    ld.top_win = top_win;
+    void *lrc = st.np_lrc, *own = top ? widget_lookup(top, "scroll_lrc", 1) : (void *)0;
+    int n = lrc ? (int)widget_count_children(lrc) : 0, sec = -1, total = 0;
+    void *c0 = n ? widget_get_child(lrc, 0) : (void *)0, *cn = n ? widget_get_child(lrc, n - 1) : (void *)0;
+    player_playtime_and_length(&sec, &total);
+    char line[700];
+    tk_snprintf(line, sizeof line,
+                "t=%u top=%x:%s np=%x lrc=%x own=%x v=%d shown=%d use=%d anim=%d prs=%d y=%d ch=%d "
+                "h=%d vh=%d ys=%d wa=%x/%d n=%d c0=%d+%d cn=%d+%d held=%d gl=%d to=%d tch=%d raw=%d "
+                "whl=%d song=%x/%x/%x ls=%d el=%d/%d f=%u e=%u g=%u s=%u r=%u tp=%u st=%u fy=%d fr=%d\n",
+                now, top_win, top ? widget_get_prop_str(top, "name", "") : "",
+                (unsigned)(unsigned long)st.np_win, (unsigned)(unsigned long)lrc,
+                (unsigned)(unsigned long)own,
+                st.np_slide ? widget_get_prop_int(st.np_slide, "value", -1) : -2, lyrics_shown(),
+                usable(), window_manager_is_animating(wm), window_manager_get_pointer_pressed(wm),
+                lrc ? I(lrc, SCROLL_Y) : -1, lrc ? I(lrc, VIEW_CONTENT_H) : -1, lrc ? I(lrc, W_H) : -1,
+                lrc ? widget_get_prop_int(lrc, "virtual_h", -1) : -1,
+                lrc ? widget_get_prop_int(lrc, "yslidable", -1) : -1,
+                lrc ? (unsigned)(unsigned long)P(lrc, VIEW_ANIMATOR) : 0u,
+                lrc && P(lrc, VIEW_ANIMATOR) ? I(P(lrc, VIEW_ANIMATOR), 0x64) : -1, n, c0 ? I(c0, W_Y) : -1,
+                c0 ? I(c0, W_H) : -1, cn ? I(cn, W_Y) : -1, cn ? I(cn, W_H) : -1, st.lyric_held,
+                st.lyric_glide, st.lyric_to, st.lyric_touch, st.lyric_raw, wheel_held, np_track(),
+                st.lyric_song, st.lyric_rows_song, mclGetLyricSize(), sec, total, ld.follow, ld.early,
+                ld.glide, ld.scroll, ld.rows, ld.tops, ld.steps, ld.fy, ld.fret);
+    ld.follow = ld.early = ld.glide = ld.scroll = ld.rows = ld.tops = ld.steps = 0;
+    ldiag(line);
 }
 
 /* Every UI loop pass (ringnav_sleep). On the lyrics page in front, while the track has lyrics, the
@@ -3420,6 +3494,7 @@ static void lyric_poll(void) {
         st.lyric_glide = 0;
     else if (st.lyric_glide)
         lyric_step(lrc);
+    ldiag_poll();
 }
 
 /* A tick on the lyrics page while the track has lyrics, which comes only before lyric_poll takes
@@ -3501,6 +3576,12 @@ static int np_key(void *top, unsigned key) {
 }
 
 static int np_gone(void *win, void *event) {
+    if (ldiag_on()) { /* TEST BUILD ONLY */
+        char line[80];
+        tk_snprintf(line, sizeof line, "gone win=%x np=%x\n", (unsigned)(unsigned long)win,
+                    (unsigned)(unsigned long)st.np_win);
+        ldiag(line);
+    }
     if (win == st.np_win) {
         st.np_win = (void *)0;
         st.np_hash = 0;
@@ -3556,6 +3637,14 @@ int ringnav_playing(void *win, void *ctx) {
         st.held_sec = 0;
     np_sync(win);
     visualizer_attach(win);
+    if (ldiag_on()) { /* TEST BUILD ONLY */
+        char line[120];
+        tk_snprintf(line, sizeof line, "init win=%x lrc=%x cls=%x song=%x n=%d\n",
+                    (unsigned)(unsigned long)win, (unsigned)(unsigned long)st.np_lrc,
+                    ctx ? (unsigned)I(ctx, 8) : 0u, st.lyric_song,
+                    st.np_lrc ? (int)widget_count_children(st.np_lrc) : -1);
+        ldiag(line);
+    }
     return result;
 }
 
