@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.4.6**:
+  - Resume: after a Network Update, a TF card update or Restart, the Q2 comes back to the song and the second you were playing. Stock saved that place only when the Q2 powered off, so these went back to wherever it was at the last power-off, however long ago.
   - Battery: the crash watchdog checks every 10 s instead of 2 s, so it forks far less often; a crashed player still reboots within 10 s.
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - Streaming: an app's page can always stop it. When Deezer, Soulseek or File Browser doesn't answer, its page offers **Stop Soulseek** (or Deezer, File Browser) beside **Retry**, as does a page still loading after 3 s, and it ends the app even when it's frozen. **Retry** on "Soulseek isn't running" while the app still runs, its link to the Q2 lost, restarts it instead of asking again in vain.
