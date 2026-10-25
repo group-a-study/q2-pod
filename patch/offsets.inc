@@ -237,6 +237,15 @@ static inline int arc_out(int r, int y) {
 #define NP_TITLE_PX 22
 #define NP_META_PX 18
 #define NP_ALBUM_RGB 0xbbbbbb
+/* iPod Now Playing's lyrics (lyrics.c, docs/ipod.md#lyrics): each line in a LYRIC_SLOT row, three
+ * to the 178 px page, after a blank one (tools/ipod.py's list layout) so the playing line sits in
+ * the middle; text LYRIC_X from the left, as the art. The sung part LYRIC_LIT, the rest of the
+ * playing line LYRIC_DIM, the other lines LYRIC_REST. */
+#define LYRIC_SLOT 59
+#define LYRIC_X 16
+#define LYRIC_LIT 0xffffff
+#define LYRIC_DIM 0x808080
+#define LYRIC_REST 0x5f5f5f
 /* Spotify's and Internet Radio's Now Playing layout (tools/ipod.py NP_*, which checks they match):
  * the art and the text 16px from the sides, 12 apart, the bar and times clear of the glass's corners. */
 #define SPOT_ART_X 16

@@ -430,11 +430,8 @@ keeps its existing artist color. Long lines scroll, as stock.
 the label. There is no on-screen transport row: the buttons play, pause and skip.
 
 The art, title, artist and album are the slide_view's first page, so a swipe replaces all of them
-with the stock lyrics or info page. Those keep their stock 225-pixel column, centred: stock creates
-each lyric line 225 pixels wide, and wraps a line wider than that. The lyrics' scroll view, which
-clips them, is 4 pixels wider on each side (`NP_LRC_GUTTER`, its list layout setting the rows that
-far in), because a letter's ink can reach up to 2 pixels past the width stock measures, as an f
-ending a line does; at the scroll view's edge a full line lost those pixels on either side. The info page's lines read `Label: value`, with spaced units
+with the lyrics or info page. The info page keeps its stock 225-pixel column, centred; the lyrics
+page spans the screen (**Lyrics** below). The info page's lines read `Label: value`, with spaced units
 (`35.92 MB`, `16-bit`, `950 kbps`, `44.1 kHz`), **Genre** and **Year** for stock's Genres and Era,
 `Unknown` for a missing value and `Location:` before the folder (`ringnav_np_info`, both builds). The play/pause overlay has zero opacity, retaining its original gesture target without
 a transport glyph; stock may update its visibility without making it appear. The loading
@@ -478,16 +475,27 @@ scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
 
-**Lyrics.** Stock already highlights the current line and scrolls to keep it in view. The top row is
-always whole: near the end the lines stop with up to a row of space below the last, not with the top
-one cut. On the
+**Lyrics.** The lyrics page shows three lines at most, large, as Apple Music's lyrics do: the
+playing line in the middle, the one before above it and the next below, each in a `LYRIC_SLOT`
+(59-pixel) row of the 178-pixel page, its text `LYRIC_X` (16 pixels, as the art) from the left. A
+line takes one row of 28 pixels, else two of 24, else two of 20, else three of 17, the rest cut;
+it breaks at a space, or beside a CJK character, and each line is drawn twice a pixel apart, for
+weight. The playing line lights white (`LYRIC_LIT`) as it is sung, its unsung part grey
+(`LYRIC_DIM`, `#808080`); the other lines are darker (`LYRIC_REST`, `#5F5F5F`). Lyrics with word
+stamps (A2's enhanced LRC, `<mm:ss.xx>` before a word, in a .lrc or a LYRICS tag) light each word
+from its stamp to the next; lyrics timed by the line, as LRCLIB's are, light at a steady pace
+(`LYRIC_UNIT_MS`, 90 ms, a letter and three a CJK character, `LYRIC_MIN_MS` at least), done by the
+time the next line starts. Lines that start together, as a line and its translation, play
+together. Before the first line the first waits in the middle, unlit. Lines change at their
+hundredths of a second, by a clock of the page's own between the player's whole seconds. On the
 lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixel at a time as it
-turns and as far a turn as a row a tick, instead of changing the volume or scrubbing; a scrub under
-way ends first, as any other end does. While the finger stays on the wheel they stay exactly where
-it put them; let go, they glide to the nearest whole line. On the page, the follow to a new line
-glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
+turns and as far a turn as a line a tick, instead of changing the volume or scrubbing; a scrub
+under way ends first, as any other end does. While the finger stays on the wheel they stay
+exactly where it put them; let go, they glide to the nearest whole line. On the page, the follow
+to a new line glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
 highlight go on, until the page swipes away from them; back on the lyrics page they are on the
-current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod).
+current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod) and
+[Word-timed lyrics](internals.md#word-timed-lyrics).
 
 ### Visualizer
 

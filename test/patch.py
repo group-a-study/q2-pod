@@ -5515,6 +5515,7 @@ if variant=='ipod':
     sleep_hook=HOOKS['main_loop_sleep_default'][0]
     def lyric_page(page=1,size=9,lines=len(ROWS),config=None):
         m=scrub_page(); m.lyric_size=size; m.handlers[sleep_hook+12]='stock_sleep'; m.config.update(config or {})
+        m.mock('pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0'); m.word(0xa2638c,0x1000010); m.handlers[0x1000010]='free'  # the lyrics page's table (lyrics_rows)
         rows=[m.node('label') for _ in range(lines)]
         for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
         m.lrc=m.node('scroll_view','scroll_lrc',rows)
@@ -5572,12 +5573,13 @@ if variant=='ipod':
     # The same song (its queue place and file) leaves them where they are.
     m=lyric_page(); loop(m); loop(m,-56); settle(m); m.word(O['MCL_POS'],1); assert loop(m)==40 and follow(m,0)==40; passed()
     # The page's row rebuild (LYRIC_ROWS, stock's mocked) keeps the same song's place; another song's
-    # rows start at the top whatever moved the view since, and drop the hold.
+    # rows start at the top whatever moved the view since, and drop the hold. The rows are the lyrics
+    # page's from then on (lyrics.c), which follows its own playing line: none here, so the top.
     def rows(m): m.call(address=payload_syms['ringnav_lyric_rows'],args=(m.win,0,0,0),gap=0,clear=False); return y(m)
     m=lyric_page(); m.handlers[0x529f0c]='stock_lyric_rows'; loop(m); loop(m,-56); settle(m)
-    assert rows(m)==40 and follow(m,0)==40; passed()
+    assert rows(m)==40 and follow(m,0)==40 and settle(m)[-1]==40; passed()
     m.word(O['MCL_POS'],2); m.word(m.lrc+O['SCROLL_Y'],60); assert rows(m)==0 and loop(m)==0
-    follow(m,20); assert settle(m)[-1]==20; passed()  # the follow is back
+    m.word(m.lrc+O['SCROLL_Y'],20); assert settle(m)[-1]==0; passed()  # the follow is back
     # A swipe that brings the lyrics in holds nothing, even while something else moves them (stock's
     # scroll animation, ending after the screen comes on); a finger that lands on them stops that.
     m=lyric_page(page=0); loop(m); m.pressed=1; loop(m); m.nodes[m.slide]['value']=1; loop(m)
@@ -5702,6 +5704,133 @@ assert m.load()==1 and m.lines==[(3,'One'),(12,'Two'),(20,'Both'),(30,' '),(62,'
 # Bracketed text that is no stamp leaves the lyrics plain.
 m=LyricMachine({'LYRICS':'[Chorus]\nLa la\n[1:2]\n[00:61]x'}); assert m.load()==1
 assert m.lines==[(FAR,'[Chorus]'),(FAR,'La la'),(FAR,'[1:2]'),(FAR,'[00:61]x')],m.lines; passed()
+
+# Millisecond stamps and A2 word stamps ("<mm:ss.xx>" before a word): stock's list keeps whole seconds and
+# the text without the word stamps, in millisecond order.
+m=LyricMachine({'LYRICS':'[00:12.50]<00:12.50>Hel<00:12.90>lo <00:13.40>world<00:14.00>\n[00:15.05][00:40.00]<00:15.10>Twice\n[00:16]<00:16.00>\n'})
+assert m.load()==1 and m.lines==[(12,'Hello world'),(15,'Twice'),(16,' '),(40,'Twice')],m.lines; passed()
+m=LyricMachine({'LYRICS':'[00:01.999]a\n[00:01.5]b\n[00:01:25]c\n[00:01.012345]d\n'})
+assert m.load()==1 and m.lines==[(1,'d'),(1,'c'),(1,'b'),(1,'a')],m.lines; passed()
+m=LyricMachine({'LYRICS':'a<b>c <1:2> <00:61.00>x <00:01.00\n'}); assert m.load()==1 and m.lines==[(FAR,'a<b>c <1:2> <00:61.00>x <00:01.00')]; passed()
+
+# The lyrics page (lyrics.c, iPod). Each load sends its lines, milliseconds and word stamps, to the page;
+# stock's rows (its builder mocked: a label a line, its text and lrc_time seconds, offset 0) become blank
+# LYRIC_SLOT rows, which the list layout (mocked) puts a slot apart after a blank one, each painted with its
+# line; the page follows its playing line by its own clock, the player's whole seconds and time_now_ms.
+# The canvas measures a character as half its font's pixels here.
+if variant=='ipod':
+    from build import LYRIC_OPEN
+    assert struct.unpack_from('<I',demo,fileoff(demo,LYRIC_OPEN[0]))[0]==jal(payload_syms['ringnav_lrc_open'])
+    SLOT=O['LYRIC_SLOT']; DIM,REST,LIT=(color_t(O[k]) for k in ('LYRIC_DIM','LYRIC_REST','LYRIC_LIT'))
+    class KaraokeMachine(LyricMachine):
+        def __init__(self,tags={},lrc=(),path=None,files={}):
+            super().__init__(tags); self.k_stock=list(lrc); self.k_path=path; self.k_files=dict(files); self.k_inks=[]  # self.lrc: the page's scroll_lrc
+            self.handlers[playing+12]='stock_playing'; self.handlers[0x529f0c]='k:rows'
+            for n in ('widget_layout_children','canvas_draw_text','canvas_measure_text','fopen@GLIBC_2.2','fread@GLIBC_2.0',
+                      'fclose@GLIBC_2.2','deque_clear'):
+                self.handlers[syms[n]]='k:'+n
+            self.handlers.pop(syms['mclGetPlayStatus']); self.word(PLAY_STATUS,2)
+        def hook(self,u,address,size,unused):
+            name=self.handlers.get(address,'')
+            a,b,c,d=[u.reg_read(r) for r in REGS[:4]]; ret=0
+            if name=='lyric:stock':  # stock's .lrc loader: its fopen (LYRIC_OPEN), then its parse
+                self.tag_calls.append('stock')
+                if self.k_path: self.nested(payload_syms['ringnav_lrc_open'],self.string(self.k_path),self.string('r'))
+                self.lines=list(self.k_stock); return self.returns(1 if self.k_stock else -1,clobber=True)
+            if not name.startswith('k:'): return super().hook(u,address,size,unused)
+            name=name[2:]
+            if name=='rows':
+                kids=[self.node('label',text=t,lrc_time=sec) for sec,t in self.lines]
+                for k in kids: self.word(k+O['W_PARENT'],self.lrc); self.word(k+O['W_H'],20)
+                self.nodes[self.lrc]['children']=kids; self.word(self.lrc+O['SCROLL_Y'],0)
+            elif name=='widget_layout_children':  # list_view(x=0,y=LYRIC_SLOT,s=0)
+                for i,k in enumerate(self.nodes[a]['children']): self.word(k+O['W_X'],0); self.word(k+O['W_Y'],(i+1)*SLOT)
+            elif name=='canvas_measure_text': u.reg_write(UC_MIPS_REG_F0,struct.unpack('<I',struct.pack('<f',c*self.font[1]/2))[0])
+            elif name=='canvas_draw_text':
+                self.k_inks.append((''.join(chr(self.get(b+4*j)) for j in range(c)),signed(d),signed(self.get(u.reg_read(UC_MIPS_REG_SP)+16)),
+                                  self.get(self.lcd+O['LCD_TEXT_COLOR']),self.font[1],self.clip))
+            elif name=='fopen@GLIBC_2.2': ret=0x1170100 if self.text(a) in self.k_files else 0; self.k_opened=self.text(a)
+            elif name=='fread@GLIBC_2.0': data=self.k_files[self.k_opened][:b*c]; self.u.mem_write(a,data); ret=len(data)//b
+            elif name=='deque_clear': assert a==self.get(O['MCL_LYRICS']); self.lines=[]
+            self.returns(ret,clobber=True)
+        def show(self,playtime=0):
+            self.playtime=playtime; self.lrc=self.node('scroll_view','scroll_lrc')
+            self.word(self.lrc+O['W_W'],375); self.word(self.lrc+O['W_H'],178)
+            self.slide=self.node('slide_view','slide_view',[self.lrc],value=1)
+            self.win=self.top=self.node('window','playing_page',[self.slide]); self.word(self.win+O['W_PARENT'],self.wm)
+            assert self.call(address=playing,args=(self.win,7,0,0),gap=0)==0
+            self.handlers[sleep_hook+12]='stock_sleep'; self.word(payload_syms['wheel_held'],1)
+            return self.rows()
+        def rows(self): self.call(address=payload_syms['ringnav_lyric_rows'],args=(self.win,0,0,0),gap=0,clear=False); return y(self)
+        def lyric_row(self,i): return self.nodes[self.lrc]['children'][i]
+        def at_ms(self,ms=0): self.advance(ms,clear=False); return self.call(address=payload_syms['lyrics_now'],args=(0,0,0,0),gap=0,clear=False)
+        def ink(self,i): self.k_inks=[]; self.clip=(0,0,375,SLOT); self.paint(self.lyric_row(i),gap=0); return self.k_inks
+        def dirty(self): return [c[1] for c in self.calls if c[0]=='widget_invalidate_force' and c[1] in self.nodes[self.lrc]['children']]
+    def karaoke(lines=((5,'One'),(9,'Two two'),(12,'Three'),(20,'Four'),(30,'Five')),**kw):
+        m=KaraokeMachine(**kw); m.lines=list(lines); return m
+    # Stock's rows turn blank LYRIC_SLOT rows, line i's top (i + 1) slots down; with no load's table, the
+    # labels' (whole seconds, no word stamps). Before the first line the first sits in the middle, unlit, all
+    # LYRIC_REST; the playing line glides there on the page, a line a slot.
+    m=karaoke(); assert m.show(4)==0
+    assert [(m.nodes[r]['text'],m.get(r+O['W_H']),m.get(r+O['W_W']),m.get(r+O['W_Y'])) for r in m.nodes[m.lrc]['children']]==[('',SLOT,375,(i+1)*SLOT) for i in range(5)]
+    assert [(x[0],x[3]) for x in m.ink(0)]==[('One',REST)]*2; passed()
+    assert settle(m)[-1]==0 and m.get(m.lrc+O['VIEW_CONTENT_H'])==4*SLOT+178; passed()  # the last line can reach the middle
+    m.playtime=5; assert settle(m)[-1]==0; m.playtime=9; ys=settle(m); assert ys[-1]==SLOT and 0<ys[0]<SLOT,ys; passed()
+    # Off the page it jumps; the wheel moves them a line a tick's worth and holds them, off the follow, until
+    # the page swipes away and back.
+    m.nodes[m.slide]['value']=0; m.playtime=12; assert loop(m)==2*SLOT; m.nodes[m.slide]['value']=1; loop(m)
+    loop(m,-28); assert settle(m)[-1]==3*SLOT; m.playtime=30; assert settle(m)[-1]==3*SLOT; passed()
+    m.nodes[m.slide]['value']=0; assert loop(m)==4*SLOT; m.nodes[m.slide]['value']=1; assert settle(m)[-1]==4*SLOT; passed()
+    # Another song starts at the top, and its first rows too; a refresh's rows for the same song keep the table
+    # and the place; a finger on the screen keeps them where they are.
+    m.word(O['MCL_POS'],2); m.playtime=0; assert loop(m)==0 and settle(m)[-1]==0 and m.rows()==0; passed()
+    m.playtime=12; assert settle(m)[-1]==2*SLOT and m.rows()==2*SLOT and settle(m)[-1]==2*SLOT; passed()
+    m.pressed=1; m.playtime=20; assert settle(m)[-1]==2*SLOT; m.pressed=0; assert settle(m)[-1]==3*SLOT; passed()
+    # The clock: the first second seen puts it anywhere in that second (its middle, with a poll's slack);
+    # the next second narrows it to within a poll after that change; it never runs a poll past its second;
+    # paused it stays, and on Play goes on from there until the next second; a seek starts it again.
+    m=karaoke(); m.show(); POLL=250
+    m.playtime=8; assert m.at_ms()==8000+(999+POLL)//2 and m.at_ms(1000)==8999+POLL
+    m.playtime=9; assert m.at_ms()==9000+POLL//2 and m.at_ms(275)==9400
+    m.word(PLAY_STATUS,3); assert m.at_ms(500)==9400; m.word(PLAY_STATUS,2); assert m.at_ms()==9400 and m.at_ms(100)==9500
+    m.playtime=10; assert m.at_ms(10)==10000+POLL//2; m.playtime=60; assert m.at_ms(10)==60000+(999+POLL)//2; passed()
+    # The playing line, lit LYRIC_LIT from its start as far as it is sung, LYRIC_UNIT_MS a letter (LYRIC_MIN_MS
+    # at least), the rest LYRIC_DIM, each drawn twice a pixel apart: "Two two" one 28 px row (pitch 31), 98 px
+    # from x 16, centred in its slot. The other lines are LYRIC_REST; the clip comes back.
+    m=karaoke(); m.show(8); m.at_ms(); m.at_ms(1000); m.playtime=9; m.at_ms(); m.at_ms(275); loop(m,ms=0)  # 9400
+    cut=16+98*400//800
+    assert m.ink(1)==[('Two two',16,15,DIM,28,(cut,0,375-cut,SLOT)),('Two two',17,15,DIM,28,(cut,0,375-cut,SLOT)),
+                      ('Two two',16,15,LIT,28,(0,0,cut,SLOT)),('Two two',17,15,LIT,28,(0,0,cut,SLOT))],m.k_inks
+    assert {x[3] for x in m.ink(0)+m.ink(2)}=={REST} and m.clip==(0,0,375,SLOT); passed()
+    m.advance(600,clear=False); loop(m,ms=0); assert [(x[3],x[5]) for x in m.ink(1)]==[(LIT,(0,0,375,SLOT))]*2; passed()
+    # Its rows repaint as the lit width moves, and the last line's as the next one starts.
+    m.calls=[]; loop(m); assert not m.dirty(); m.playtime=12; m.calls=[]; loop(m); assert m.dirty()[:2]==[m.lyric_row(1),m.lyric_row(2)]; passed()
+    # A line too wide for a row breaks at its last space, in two rows of 24 px (pitch 27); CJK anywhere; past
+    # two, two of 20 px, then three of 17 (pitch 19), the rest cut.
+    m=karaoke([(1,'abcdefghi '*3+'abcdefghi'),(2,'字'*40),(3,'x'*60),(4,'x'*80),(5,'y'*120)]); m.show()
+    assert [(x[0],x[2],x[4]) for x in m.ink(0)[::2]]==[('abcdefghi abcdefghi',3,24),('abcdefghi abcdefghi',30,24)]
+    assert [(x[0],x[4]) for x in m.ink(1)[::2]]==[('字'*28,24),('字'*12,24)]
+    assert [(len(x[0]),x[2],x[4]) for x in m.ink(2)[::2]]==[(34,8,20),(26,30,20)]
+    assert [(len(x[0]),x[2],x[4]) for x in m.ink(3)[::2]]==[(38,2,17),(38,21,17),(4,40,17)]
+    assert [len(x[0]) for x in m.ink(4)[::2]]==[38,38,38]; passed()
+    # A load's table: its milliseconds and word stamps light each word as it is sung, stamp to stamp ("Hello
+    # world" 154 px, "Hel" 42, "Hello " 84), the last word at the sung pace; the page takes it for the rows
+    # built from those lines, before them or after, and never for others: those get the labels' table.
+    tag='[00:12.50]<00:12.50>Hel<00:12.90>lo <00:13.40>world\n[00:15.00]Next\n'
+    def lit(m): return m.ink(0)[-1][5][2]-16
+    def at13125(m): m.at_ms(); m.at_ms(275); m.playtime=13; m.at_ms(); loop(m,ms=0)
+    m=karaoke([],tags={'LYRICS':tag}); m.load(); m.show(12); at13125(m); assert lit(m)==42+42*225//500
+    m.advance(675,clear=False); loop(m,ms=0); assert lit(m)==84+70*400//800; passed()  # 800 ms: "world" is 450
+    m=karaoke([(12,'Hello world'),(15,'Next')],tags={'LYRICS':tag}); m.show(12); m.load(); at13125(m); assert lit(m)==42+42*225//500; passed()
+    m=karaoke([],tags={'LYRICS':tag}); m.load(); m.lines=[(12,'Hello world'),(15,'Nest')]; m.show(12); at13125(m)
+    assert [x[3] for x in m.ink(0)]==[LIT,LIT]; passed()  # from 12 s, 900 ms: all sung
+    # A .lrc (stock's loader mocked: its fopen comes here, LYRIC_OPEN) is read again: its synced lines replace
+    # stock's whole seconds, word stamps cut out, a UTF-8 mark at its start skipped; unsynced, stock's stay.
+    lrc='﻿[ar:x]\n[00:01.20]<00:01.20>A<00:01.70>b\n[00:00.50]Zero\n'.encode()
+    m=karaoke([],path='/mnt/mmc/a.lrc',files={'/mnt/mmc/a.lrc':lrc},lrc=[(1,'<00:01.20>A<00:01.70>b'),(0,'Zero')])
+    assert m.load()==1 and m.lines==[(0,'Zero'),(1,'Ab')],m.lines; passed()
+    m=karaoke([],path='/mnt/mmc/a.lrc',files={'/mnt/mmc/a.lrc':b'plain\nwords'},lrc=[(FAR,'plain'),(FAR,'words')])
+    assert m.load()==1 and m.lines==[(FAR,'plain'),(FAR,'words')]; passed()
 
 # Download Album Lyrics (onlinematch.c ringnav_playermore): after stock's 8 ⋯ rows (its init mocked), one
 # more in stock's row widgets and 20 px label, under Download Cover & Lyrics (PLAYMORE_ROWS' kind 4), its

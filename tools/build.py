@@ -275,6 +275,9 @@ LYRIC_FOLLOW = (0x52bed0, 0x0320f809)
 # The page refresh's bal to the lyric row builder (0x529f0c, which ends at offset 0) becomes jal
 # ringnav_lyric_rows, which keeps the offset: Play/Pause no longer flicks the lyrics to the top.
 LYRIC_ROWS = (0x52b8f8, 0x0411f984)
+# Stock's .lrc loader (0x5a9718) opens the file it parses with jalr fopen (lw $t9 at 0x5a9c54). iPod: jal
+# ringnav_lrc_open, which keeps a copy, so the lyrics page reads its milliseconds and word stamps.
+LYRIC_OPEN = (0x5a9c5c, 0x0320f809)
 # parse_albumcovertask_thd's jalr toolsGetAlbumCover (Albums grids; Folder view's folder and track rows),
 # each with its lw $t9, become jal coverflow_grid_cover, which gives ffmpeg the Ogg pictures stock skips;
 # the Albums grid's (first, before stock's toolsGetExternCover) jal coverflow_album_cover.
@@ -1084,7 +1087,7 @@ def compile_payload(out, ipod):
     (out/'trampoline.S').write_text('\n'.join(asm)+'\n')
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-T',ROOT/'patch/link.ld','-e','ringnav',
-        *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}'] * ipod,
+        *[f'--undefined={name}' for _, name, _ in hooks(ipod).values()], *[f'--undefined={IPOD_LEAF[2]}', '--undefined=ringnav_lrc_open'] * ipod,
         f'--undefined={WM_PAINT_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_lyric_save', '--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=ringnav_ts_read',
         '--undefined=ringnav_baidu_poll', '--undefined=ringnav_tidal_poll',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=headset_bt_init',
@@ -1321,6 +1324,10 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
           'lyric follow: expected scroll_view_scroll_to import')
     patch_word(patched, *LYRIC_FOLLOW, jal(ps['ringnav_lyric_follow']), 'lyric rows whole at the top')
     patch_word(patched, *LYRIC_ROWS, jal(ps['ringnav_lyric_rows']), 'lyrics keep their place on a refresh')
+    if ipod:
+        check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, 0x5a9c54))[0] == 0x8f99f4e8,
+              'lyric file: expected fopen import')
+        patch_word(patched, *LYRIC_OPEN, jal(ps['ringnav_lrc_open']), 'lyric lines timed to the millisecond')
     for call, load, fn in GRID_COVER:
         check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, load))[0] == 0x8f99b6e0,
               'grid cover: expected toolsGetAlbumCover import')
