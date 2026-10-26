@@ -5550,7 +5550,8 @@ if variant=='ipod':
         elif end=='timeout': step(m,O['SCRUB_MS'],wait=True)
         else: assert step(m,O['KEY_RETURN'],gap=50)==11
         ended(m,[],end); passed()
-    # The lyrics page (slide value 1) with lyrics. Each UI loop pass (ringnav_sleep) takes the wheel
+    # The lyrics page (slide value 1) with lyrics, on stock's rows, which the page keeps when it has no
+    # memory for its table (lyrics.c; its own rows below). Each UI loop pass (ringnav_sleep) takes the wheel
     # raw (wheel_raw: nothing ticks) and glides scroll_lrc by its travel, a pixel at a time: a tick's
     # 28 units at 50% are a 20 px row, eased in over the passes, within the content padded to a row
     # top. Stock's timer keeps the bar going, but its follow leaves lyrics the wheel moved where they
@@ -5560,8 +5561,9 @@ if variant=='ipod':
     # to its ticks and the volume.
     ROWS=(20,50,20,20,25)+(20,)*7  # tops 0 20 70 90 110 ...; 275 px of content, at most 97 down
     sleep_hook=HOOKS['main_loop_sleep_default'][0]
-    def lyric_page(page=1,size=9,lines=len(ROWS),config=None):  # Lyrics: Normal (stock's rows); Enhanced below
-        CONFIG['LYRICS']='1'; m=scrub_page(); del CONFIG['LYRICS']
+    def lyric_page(page=1,size=9,lines=len(ROWS),config=None):  # stock's rows: no memory for the page's table
+        m=scrub_page(); m.mock('calloc@GLIBC_2.0','pthread_mutex_lock@GLIBC_2.0','pthread_mutex_unlock@GLIBC_2.0')
+        m.word(0xa2638c,0x1000010); m.handlers[0x1000010]='free'  # free's GOT slot, as Coverflow's
         m.lyric_size=size; m.handlers[sleep_hook+12]='stock_sleep'; m.config.update(config or {})
         rows=[m.node('label') for _ in range(lines)]
         for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
@@ -5794,7 +5796,7 @@ assert m.load()==1 and m.lines==[(0,'Zero'),(1,'Ab')],m.lines; passed()
 m=LrcMachine(path='/mnt/mmc/a.lrc',files={'/mnt/mmc/a.lrc':b'plain\nwords'},lrc=[(FAR,'plain'),(FAR,'words')])
 assert m.load()==1 and m.lines==[(FAR,'plain'),(FAR,'words')]; passed()
 
-# The lyrics page (lyrics.c, iPod; Lyrics: Enhanced, the default). Each load sends its lines, milliseconds
+# The lyrics page (lyrics.c, iPod). Each load sends its lines, milliseconds
 # and word stamps, to the page; stock's rows (its builder mocked: a label a line, its text and lrc_time
 # seconds, offset 0; its page init builds them too) become blank rows as high as their lines, LYRIC_SLOT for
 # one row, which the list layout (mocked) stacks after a blank LYRIC_SLOT, each painted with its line; the
@@ -5803,10 +5805,8 @@ assert m.load()==1 and m.lines==[(FAR,'plain'),(FAR,'words')]; passed()
 if variant=='ipod':
     SLOT=O['LYRIC_SLOT']; DIM,REST,LIT=(color_t(O[k]) for k in ('LYRIC_DIM','LYRIC_REST','LYRIC_LIT'))
     class KaraokeMachine(LrcMachine):
-        def __init__(self,tags={},normal=False):
-            if normal: CONFIG['LYRICS']='1'
-            try: super().__init__(tags)
-            finally: CONFIG.pop('LYRICS',None)
+        def __init__(self,tags={}):
+            super().__init__(tags)
             self.k_inks=[]  # self.lrc: the page's scroll_lrc
             self.handlers[playing+12]='stock_playing'; self.handlers[0x529f0c]='k:rows'
             for n in ('widget_layout_children','widget_get_canvas','canvas_draw_text','canvas_measure_text'):
@@ -5902,30 +5902,15 @@ if variant=='ipod':
     def seen(i): top=SLOT+sum(hs[:i])-off; return max(0,min(top+hs[i],178)-max(top,0))
     assert [seen(i) for i in range(5)]==[0,21,135,22,0]
     assert [{x[3]>>24 for x in m.ink(i)} for i in range(5)]==[set(),{255*21*21//(97*97)},{255},{255*22*22//(SLOT*SLOT)},set()]; passed()
-    # Lyrics: Normal keeps stock's rows (their text, 20 px, 225 px centred) and its follow; switched in
-    # Display, an open Now Playing's rows are built again the other way, at the top.
-    m=karaoke(normal=True); m.show(9)
-    assert m.nodes[m.lrc]['children_layout']=='list_view(x=75,y=0,s=0)' and [m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']]==['One','Two two','Three','Four','Five']
-    assert {m.get(r+O['W_H']) for r in m.nodes[m.lrc]['children']}=={20} and m.ink(1)==[]; passed()
-    def lyrics_setting(m):
-        m.calls=[]; m.call(address=payload_syms['setting_click'],args=(6,m.event,0,0),gap=0,clear=False)
-        return [(c[1],m.text(c[3])) for c in m.calls if c[0]=='write_int_config']
-    m.word(m.lrc+O['SCROLL_Y'],40); assert lyrics_setting(m)==[(0,'LYRICS')] and y(m)==0
-    assert m.nodes[m.lrc]['children_layout']==f'list_view(x=0,y={SLOT},s=0)' and {m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']}=={''}
-    assert settle(m)[-1]==SLOT and [x[3] for x in m.ink(1)][-1]==LIT; passed()
-    assert lyrics_setting(m)==[(1,'LYRICS')] and m.nodes[m.lrc]['children_layout']=='list_view(x=75,y=0,s=0)'
-    assert m.nodes[m.lyric_row(1)]['text']=='Two two' and y(m)==0; passed()
-    # Switched while Now Playing was closed: the next page's rows, in the last page's scroll view (AWTK's
-    # memory reused) and as many, stay stock's, with nothing painted over them.
-    m=karaoke(); m.show(9); assert m.nodes[m.lyric_row(0)]['text']==''
-    f,ctx=m.handler(m.win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    assert lyrics_setting(m)==[(1,'LYRICS')]; m.show(9,lrc=m.lrc)
+    # With no memory for its table the page keeps stock's rows, their text, and paints nothing over them.
+    m=karaoke(); m.mock('calloc@GLIBC_2.0'); m.show(9)
     assert [m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']]==['One','Two two','Three','Four','Five']
     assert m.ink(1)==[] and loop(m)==0 and m.ink(1)==[]; passed()
-    # And back: Enhanced again on the next page.
-    f,ctx=m.handler(m.win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
-    assert lyrics_setting(m)==[(0,'LYRICS')]; m.show(9,lrc=m.lrc)
-    assert {m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']}=={''} and [x[3] for x in m.ink(1)]; passed()  # no stock text left
+    # Now Playing opened again in the last page's scroll view (AWTK's memory reused): its rows become the
+    # page's the same way, no stock text left.
+    m=karaoke(); m.show(9); f,ctx=m.handler(m.win,O['EVT_DESTROY']); m.call(address=f,args=(ctx,m.event,0,0),gap=0)
+    m.show(9,lrc=m.lrc)
+    assert {m.nodes[r]['text'] for r in m.nodes[m.lrc]['children']}=={''} and [x[3] for x in m.ink(1)]; passed()
     # A load's table: its milliseconds and word stamps light each word as it is sung, stamp to stamp ("Hello
     # world" 187 px, "Hel" 51, "Hello " 102), the last word at the sung pace (LYRIC_UNIT_MS a letter,
     # LYRIC_MIN_MS at least); a line without word stamps lights whole; the page takes the table for the rows
@@ -7082,7 +7067,7 @@ if variant=='ipod':
             want=ACCENTS[preset][3 if name.endswith('text_color') else 2]
             assert style_color(m,red,name)[1]==(red if preset==O['CRIMSON'] else color_t(want)),(config,name)
         assert style_color(m,grey)[1]==grey
-        assert len(m.config_reads)==8  # every key, once, on first use
+        assert len(m.config_reads)==7  # every key, once, on first use
         passed()
     # Real paint order, no persistent widget styles: normal, metadata, disabled alpha,
     # recycled text, touch hiding, Home siblings, and every accent.
@@ -7133,7 +7118,7 @@ if variant=='ipod':
     passed()
 
     m=Machine(); style_color(m,red)
-    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0'),('/mnt/data/config.ini','IPOD','LYRICS','0')]; passed()
+    assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','7'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','7'),('/mnt/data/config.ini','IPOD','ROUNDED','0')]; passed()
 
     # Gradients: the leaf's null checks, then the caller's stops mapped (nr @8, stops @0xc).
     def gradient(config,stops,same_out=True,vt_get=True,style=True):
@@ -7365,8 +7350,8 @@ if variant=='ipod':
 
     # Display settings: after the stock rows, Appearance, Coverflow and Controls, each opening stock's page
     # again (display_sub) with its stock rows dropped and its own rows instead. Appearance holds Theme,
-    # Accent, Corners, Home, Battery and Lyrics in the native row widgets and styles, with the Display (Theme and
-    # Accent), cover mode, power manager and language icons; Centre or tap cycles and saves each; a new theme or
+    # Accent, Corners, Home and Battery in the native row widgets and styles, with the Display (Theme and
+    # Accent), cover mode and power manager icons; Centre or tap cycles and saves each; a new theme or
     # accent drops the image cache and repaints, a new Battery mode repaints the bar.
     def display_page(m,sub):
         m.word(payload_syms['display_sub'],sub)
@@ -7401,9 +7386,8 @@ if variant=='ipod':
     assert [row_text(r) for r in (shortcut,hold)]==['Shortcut: Rockbox','Hold Return: Recent']; passed()
     view=display_page(m,1); rows=setting_rows(m,view)
     kids=m.nodes[view]['children']; corners=kids[2]
-    assert kids[:5]==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Corners, Home, Battery
-    assert len(kids)==6 and row_text(kids[5])=='Lyrics: Enhanced'  # then Lyrics
-    assert m.icons_set==['system_display','system_display','system_display','playset_covermode','system_powermanager','system_language'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
+    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1  # Theme, Accent, Corners, Home, Battery
+    assert m.icons_set==['system_display','system_display','system_display','playset_covermode','system_powermanager'] and all(m.nodes[r]['type']=='list_item' and m.nodes[r]['style']=='s_listitem_black' for r in rows)
     buttons=[m.nodes[r]['children'][0] for r in rows]; labels=[m.nodes[b]['children'][1] for b in buttons]
     for b,l in zip(buttons,labels):
         icon=m.nodes[b]['children'][0]  # stock's 0x4c19bc icon geometry, which the row layouter maps
@@ -7480,7 +7464,7 @@ if variant=='ipod':
     assert m.nodes[corners_label]['text']=='Corners: Rounded'
     assert ('image_manager_unload_all',0x1000500) in [c[:2] for c in m.calls] and ('widget_invalidate_force',m.wm) in [c[:2] for c in m.calls]
     kids=m.nodes[view]['children']
-    assert kids[:5]==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
+    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and m.nodes[rows[0]].get('visible',1)==1
     assert texts()==['Accent: Graphite','Home: Split','Battery: Icon','Theme: Classic']; home_bounds(False,True); passed()
     # Theme, the first row, keeps the selection, painted.
     m.paint(view); assert m.selected(view)==0; passed()
@@ -7496,7 +7480,7 @@ if variant=='ipod':
     writes=click(3); assert [(w[0],m.text(w[2])) for w in writes]==[(0,'THEME')] and texts()[3]=='Theme: Minimal' and m.nodes[corners_label]['text']=='Corners: Rounded'
     m.paint(view); assert m.selected(view)==0
     kids=m.nodes[view]['children']
-    assert kids[:5]==[rows[3],rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
+    assert kids==[rows[3],rows[0],corners,rows[1],rows[2]] and texts()[0]=='Accent: Ivory' and texts()[1]=='Home: Split'
     home_bounds(False)
     m.paint(view); assert not m.bands and m.rounded[0]['color']==color_t(0xeeeeec); passed()
     # Minimal's accents (MINIMAL_ACCENT): Ivory, then Classic's; a coloured one is the card's fill.

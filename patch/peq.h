@@ -212,7 +212,6 @@ typedef struct {
 void lyrics_publish(const lrc_line *l, unsigned n, const lrc_mark *m);
 int lyrics_rows(void *lrc), lyrics_on(void *lrc), lyrics_now(void), lyrics_line(void *lrc, int ms, int page);
 void lyrics_paint(void *row, void *canvas), lyrics_gone(void);
-int ipod_lyrics_enhanced(void); /* navigation.c: Display → Appearance → Lyrics, 1 Enhanced */
 unsigned accent_tone(int tone); /* iPod: the Accent's ACCENTS column (Minimal's own: MINIMAL_FILL) */
 unsigned rgba(unsigned rgb, unsigned alpha), mix(unsigned from, unsigned to, int j, int n);
 void caption(void *canvas, const char *s, int x, int y, int w, int h, unsigned px, unsigned color);

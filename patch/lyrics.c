@@ -169,15 +169,13 @@ static void ly_layout(void *canvas, ly_line *l) {
     l->px = LYRIC_PX, l->rows = rows < LYRIC_ROWS ? rows : LYRIC_ROWS;
 }
 
-/* Stock built lrc's rows (navigation.c ringnav_lyric_rows), a label a line: with Lyrics: Enhanced
- * (ipod_lyrics_enhanced), their table is the loader's for those lines, else the last one, else one
- * made from the labels (stock's text and whole seconds, without word stamps). Each becomes a blank
- * row as high as its line's rows plus LYRIC_GAP, laid out with the canvas's font, which the list
- * layout puts after a blank LYRIC_SLOT. */
+/* Stock built lrc's rows (navigation.c ringnav_lyric_rows), a label a line: their table is the
+ * loader's for those lines, else the last one, else one made from the labels (stock's text and
+ * whole seconds, without word stamps). Each becomes a blank row as high as its line's rows plus
+ * LYRIC_GAP, laid out with the canvas's font, which the list layout puts after a blank LYRIC_SLOT.
+ */
 int lyrics_rows(void *lrc) {
     unsigned n = widget_count_children(lrc), chars = 0, sum = 2166136261u;
-    ly.lrc = lrc, ly.rows = 0;
-    if (!ipod_lyrics_enhanced()) return 0; /* Normal: stock's rows */
     for (unsigned i = 0; i < n; ++i) {
         void *row = widget_get_child(lrc, i);
         const unsigned *s = widget_get_text(row);

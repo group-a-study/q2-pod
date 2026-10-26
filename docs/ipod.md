@@ -475,9 +475,9 @@ scrub ends, instead of after each pause between ticks. Values are `SCRUB_*` in
 The top row's text and icons, the bar's ends and the times keep clear of the corners
 ([Rounded corners](#rounded-corners)).
 
-**Lyrics.** With **Lyrics: Enhanced** (Display → Appearance, the default) the lyrics page shows
-the lyrics large, for reading at a glance, as Apple Music's do: the playing line centred, the one
-before above it and the next below, its text `LYRIC_X` (16 pixels, as the art) from the left.
+**Lyrics.** The lyrics page shows the lyrics large, for reading at a glance, as Apple Music's do:
+the playing line centred, the one before above it and the next below, its text `LYRIC_X` (16
+pixels, as the art) from the left.
 Every line is 34 pixels, as large as reads well in the page's width; a long one wraps, at a space
 or beside a CJK character, onto as many rows as it takes, up to four, which still fit the page
 (the rest cut). The page is made for English lyrics: a line of Latin text (with its curly quotes,
@@ -493,8 +493,7 @@ no stamp after it, at `LYRIC_UNIT_MS`, 90 ms, a letter, done by the next line), 
 grey (`LYRIC_DIM`, `#808080`); a line timed by the line alone, as LRCLIB's are, lights whole as it
 starts. Lines that start together, as a line and its translation, play
 together. Blank lines in the lyrics (empty lines between verses, a stamp with no words, lines of
-spaces) are left out and the spaces at a line's ends trimmed, under either Lyrics setting, so the
-lines keep an even spacing. Before the first line the first waits in the middle, unlit. Lines change at their
+spaces) are left out and the spaces at a line's ends trimmed, so the lines keep an even spacing. Before the first line the first waits in the middle, unlit. Lines change at their
 hundredths of a second, by a clock of the page's own between the player's whole seconds. On the
 lyrics page, while the track has lyrics, the wheel scrolls them smoothly, a pixel at a time as it
 turns and as far a turn as a line a tick, instead of changing the volume or scrubbing; a scrub
@@ -502,11 +501,7 @@ under way ends first, as any other end does. While the finger stays on the wheel
 exactly where it put them; let go, they glide to the nearest whole line. On the page, the follow
 to a new line glides too. Lyrics moved by the wheel or a finger stay where they are, while the bar and the
 highlight go on, until the page swipes away from them; back on the lyrics page they are on the
-current line again. Another song starts at the top. **Lyrics: Normal** keeps stock's lyrics page
-instead: its 225-pixel rows, centred, the current line in the accent, changing on whole seconds;
-the wheel, the hold and the glide work the same, a row a tick. Changing the setting
-rebuilds an open Now Playing's lyrics the other way, at the top. See
-[internals.md](internals.md#scrub-ipod) and [Word-timed lyrics](internals.md#word-timed-lyrics).
+current line again. Another song starts at the top. See [internals.md](internals.md#scrub-ipod) and [Word-timed lyrics](internals.md#word-timed-lyrics).
 
 ### Visualizer
 
@@ -586,8 +581,7 @@ drops the stock rows, takes the sub-page's title and builds only its own rows:
 - Appearance: "Theme: Minimal", "Accent: Graphite" and "Corners: Square" with the System settings
   Display icon (`system_display`), "Home: Split" (`playset_covermode`) and "Battery: Icon" (Icon,
   Percent, Icon + Percent, Percent Inside; see [Status bar and clock](#status-bar-and-clock)) with
-  the power manager icon (`system_powermanager`), and "Lyrics: Enhanced" (or Normal; see
-  [Now Playing](#now-playing)) with the language icon (`system_language`).
+  the power manager icon (`system_powermanager`).
 - Coverflow: "Artist Albums: Coverflow" (`Q2POD ARTISTCF`, the default; Grid and List, same icon;
   Coverflow ends with an All albums card, see
   [internals.md](internals.md#artist-albums-in-coverflow)), "Coverflow Sort: Album" and "Refresh
@@ -605,7 +599,7 @@ The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4f3f4c`):
 `sprintf("%d")`, then `toolsWriteConfig("/mnt/data/config.ini", section, key, text)`, which
-rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `HOME`, `BATTERY`, `THEME` and `LYRICS` (0 Enhanced, 1 Normal). The values are read once,
+rewrites the key or appends `[IPOD]` with it (`"[%s]\n%s=%s\n"`). The keys are `ACCENT` (Classic's accent), `MINIMAL_ACCENT` (Minimal's), `ROUNDED` (Corners: 0 Square, 1 Rounded), `HOME`, `BATTERY` and `THEME`. The values are read once,
 on the payload's first use (after stock `config_init`: `application_init` runs `platform_init`, which
 calls it, before it opens any window), with `toolsReadConfig` (`0x5bd464`), in the order stock `config_init`
 calls it: `(path, section, key, out, default)`. It reads the file line by line

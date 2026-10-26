@@ -363,16 +363,14 @@ typedef struct {
      * lyric_raw while their page holds the wheel's raw travel; lyric_held once the wheel or a drag
      * moved them; lyric_spun once the wheel moved them since it was let go; lyric_touch while a
      * finger is on Now Playing, 1 if it came down on the lyrics, lyric_drag_y the offset then; the
-     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves;
-     * lyric_mode, the Lyrics setting their layout is for, + 1 (lyric_apply). */
-    int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to,
-        lyric_mode;
+     * glide's target lyric_to (1/16 px), its last step lyric_at, and lyric_glide while it moves. */
+    int lyric_raw, lyric_held, lyric_spun, lyric_touch, lyric_drag_y, lyric_glide, lyric_to;
     unsigned lyric_at, lyric_song, lyric_rows_song;
     /* The Display settings, read from config.ini on first use, and the display page's value labels.
      */
     int settings_read, accent, minimal_accent, home_full, battery, home_rockbox, classic, shortcut,
-        rounded, lyrics;
-    void *setting_label[7];
+        rounded;
+    void *setting_label[6];
     unsigned tone_key; /* the wheel key whose press ringnav_keydown silenced, 0 when none */
     int greeted;       /* the first reachable list got its boot repaint */
 #endif
@@ -1471,12 +1469,12 @@ static const char *const accent_names[] = {
 };
 _Static_assert(sizeof accent_names / sizeof *accent_names == ACCENT_N, "one name per ACCENTS row");
 /* The Display rows' settings, by ringnav_display's index: 0 Accent, 1 Home, 2 Battery, 3 Theme,
- * 4 Shortcut, 5 Corners, 6 Lyrics. */
-static const char *const setting_keys[] = { "ACCENT",   "HOME",    "BATTERY", "THEME",
-                                            "SHORTCUT", "ROUNDED", "LYRICS" };
-static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2, 2 };
-static int *const setting_values[] = { &st.accent,   &st.home_full, &st.battery, &st.classic,
-                                       &st.shortcut, &st.rounded,   &st.lyrics };
+ * 4 Shortcut, 5 Corners. */
+static const char *const setting_keys[] = { "ACCENT", "HOME",     "BATTERY",
+                                            "THEME",  "SHORTCUT", "ROUNDED" };
+static const int setting_counts[] = { ACCENT_N, 2, 4, 2, 7, 2 };
+static int *const setting_values[] = { &st.accent,  &st.home_full, &st.battery,
+                                       &st.classic, &st.shortcut,  &st.rounded };
 static int accent(void) {
     if (!st.settings_read) {
         for (int i = 0; i < 4; ++i)
@@ -1486,7 +1484,6 @@ static int accent(void) {
         st.shortcut = config_value("IPOD", "SHORTCUT", 7, 7); /* 7: no key, see shortcut() */
         st.minimal_accent = config_value("IPOD", "MINIMAL_ACCENT", ACCENT_N, MINIMAL_ACCENT);
         st.rounded = config_value("IPOD", "ROUNDED", 2, 0); /* Square unless chosen */
-        st.lyrics = config_value("IPOD", "LYRICS", 2, 0);   /* Enhanced unless chosen */
         st.settings_read = 1;
     }
     return st.classic ? st.accent : st.minimal_accent;
@@ -1511,10 +1508,6 @@ int ipod_battery(void) {
     accent();
     return st.battery;
 } /* lockscreen.c's Large clock */
-int ipod_lyrics_enhanced(void) {
-    accent();
-    return !st.lyrics;
-} /* lyrics.c */
 /* 1 when Home shows its Rockbox row (coverflow_home_layout): the card has Rockbox. */
 int ipod_home_rockbox(void) {
     st.home_rockbox = rockbox_available();
@@ -3546,24 +3539,16 @@ static void lyric_snap(void *lrc) {
  * gone. The lyrics page's rows are its lines, a tick's worth a line. */
 #define LYRIC_ROW_PX 20
 
-/* Display → Appearance → Lyrics on Now Playing's lyrics: Enhanced, the lyrics page's (lyrics.c),
- * the rows full width after a blank LYRIC_SLOT; Normal, stock's 225 px rows, centred. Stock's rows
- * as its init built them (built) become the page's; rows built the other way are built again, at
- * the top. */
-static void lyric_apply(int built) {
+/* Now Playing's lyrics are the lyrics page's (lyrics.c): the rows full width after a blank
+ * LYRIC_SLOT. Stock's init built the rows before ringnav_playing knew the page; they become the
+ * page's, or, with none or no memory for their table, stay stock's. */
+static void lyric_init(void) {
     void *lrc = st.np_lrc;
     if (!lrc) return;
-    int on = ipod_lyrics_enhanced();
     char layout[48];
-    st.lyric_mode = on + 1;
-    tk_snprintf(layout, sizeof layout, "list_view(x=%d,y=%d,s=0)", on ? 0 : (375 - 225) / 2,
-                on ? LYRIC_SLOT : 0);
+    tk_snprintf(layout, sizeof layout, "list_view(x=0,y=%d,s=0)", LYRIC_SLOT);
     widget_set_children_layout(lrc, layout);
-    if (!built) {
-        ringnav_lyric_rows(st.np_win);
-        if (!on) widget_layout_children(lrc);
-        lyric_top(lrc);
-    } else if (lyrics_rows(lrc)) /* Normal: none, the page's last state dropped */
+    if (lyrics_rows(lrc))
         lyric_pad(lrc);
     else
         widget_layout_children(lrc);
@@ -3589,7 +3574,6 @@ static void lyric_follow(void *lrc, int front, int shown) {
 
 static void lyric_poll(void) {
     void *lrc = st.np_lrc, *wm = window_manager();
-    if (lrc && st.lyric_mode != ipod_lyrics_enhanced() + 1) lyric_apply(0);
     unsigned song = lrc ? np_track() : st.lyric_song;
     if (song != st.lyric_song) {
         st.lyric_song = song;
@@ -3749,7 +3733,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.np_slide = widget_lookup(win, "slide_view", 1);
     st.np_lrc = widget_lookup(win, "scroll_lrc", 1);
     st.lyric_song = st.lyric_rows_song = np_track(); /* no song change at the start */
-    lyric_apply(1);                                  /* the rows stock's init built */
+    lyric_init();                                    /* the rows stock's init built */
     st.np_hash = 0;
     st.np_left = -1;
     np_fill(0);
@@ -4245,16 +4229,14 @@ static void setting_text(int i) {
                                                   "Battery: Icon + Percent",
                                                   "Battery: Percent Inside" },
                              *const theme[] = { "Theme: Minimal", "Theme: Classic" },
-                             *const corners[] = { "Corners: Square", "Corners: Rounded" },
-                             *const lyrics[] = { "Lyrics: Enhanced", "Lyrics: Normal" };
+                             *const corners[] = { "Corners: Square", "Corners: Rounded" };
     accent(); /* reads the settings */
     const char *const names[] = { accent_names[st.classic ? st.accent : st.minimal_accent],
                                   home[st.home_full],
                                   battery[st.battery],
                                   theme[st.classic],
                                   (const char *)0,
-                                  corners[st.rounded],
-                                  lyrics[st.lyrics] };
+                                  corners[st.rounded] };
     char shortcut[64];
     if (i == 4) {
         tk_snprintf(shortcut, sizeof shortcut, "Shortcut: %s", ipod_home_shortcut());
@@ -4284,7 +4266,7 @@ static void settings_layout(void *w) {
 /* Centre or tap cycles the row's value and saves it. A new accent or theme reaches the payload's
  * drawing on the next paint, and the theme's colors and images once every cached image is dropped
  * and the screen repaints; Home takes its new layout and Streaming label at once (never
- * recreated), and an open Now Playing its progress bar and its lyrics' way. */
+ * recreated), and an open Now Playing its progress bar. */
 static int setting_click(void *ctx, void *event) {
     int i = (int)(long)ctx, minimal = !i && !ipod_classic();
     int *value = minimal ? &st.minimal_accent : setting_values[i];
@@ -4307,8 +4289,6 @@ static int setting_click(void *ctx, void *event) {
         coverflow_home_layout();
     else if (i == 5)
         widget_invalidate_force(window_manager(), (void *)0);
-    else if (i == 6)
-        lyric_apply(0); /* an open Now Playing's lyrics */
     else {
         if (i == 3) {
             coverflow_home_layout();
@@ -4392,11 +4372,10 @@ static int display_open(void *ctx, void *event) {
  * holding a 335x70 s_btn_listitem button with a 52px icon, a 24px label at x 72 and list_into);
  * Appearance (iPod), Coverflow and Controls follow with the same widgets and styles, each opening
  * stock's page again (display_open) with its stock rows dropped and its own instead: Theme,
- * Accent, Corners, Home, Battery and Lyrics; Artist Albums, Coverflow Sort and Refresh Coverflow;
- * Shortcut (iPod), Hold Return and Wheel Sensitivity, the last opening its slider page
- * (crossfade.c). The value rows show it in the label and have no chevron, since they change in
- * place. ponytail: stock's page opened over itself; its own rows' state is never touched on a
- * sub-page. */
+ * Accent, Corners, Home and Battery; Artist Albums, Coverflow Sort and Refresh Coverflow; Shortcut
+ * (iPod), Hold Return and Wheel Sensitivity, the last opening its slider page (crossfade.c). The
+ * value rows show it in the label and have no chevron, since they change in place.
+ * ponytail: stock's page opened over itself; its own rows' state is never touched on a sub-page. */
 int ringnav_display(void *win, void *ctx) {
     static const char *const titles[] = { 0, "Appearance", "Coverflow", "Controls" },
                              *const sub_icons[] = { 0, "system_display", "playset_covermode",
@@ -4422,14 +4401,13 @@ int ringnav_display(void *win, void *ctx) {
         return result;
     }
 #if IPOD
-    /* Theme, Accent, Corners, Home, Battery, Lyrics; Shortcut. */
-    static const unsigned char appearance[] = { 3, 0, 5, 1, 2, 6 }, controls[] = { 4 };
+    /* Theme, Accent, Corners, Home, Battery; Shortcut. */
+    static const unsigned char appearance[] = { 3, 0, 5, 1, 2 }, controls[] = { 4 };
     static const char *const icons[] = { "system_display",      "playset_covermode",
                                          "system_powermanager", "system_display",
-                                         "playset_covermode",   "system_display",
-                                         "system_language" };
+                                         "playset_covermode",   "system_display" };
     const unsigned char *rows = sub == DISPLAY_APPEARANCE ? appearance : controls;
-    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 6 : 1; k < n; ++k) {
+    for (int k = 0, n = sub == DISPLAY_APPEARANCE ? 5 : 1; k < n; ++k) {
         int i = rows[k];
         st.setting_label[i] = list_row(view, icons[i], setting_click, (void *)(long)i);
         setting_text(i);
