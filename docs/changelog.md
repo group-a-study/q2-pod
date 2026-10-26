@@ -25,6 +25,7 @@
   - Bluetooth: the Q2's volume no longer changes your speaker's or headphones' own volume by default, as on stock firmware, so turning the Q2 down doesn't leave the speaker weak and thin. **Bluetooth → Control Device Volume**, under Resume on Connect, brings back the linked volume: the Q2's volume sets the device's, and the device's buttons move the Q2's.
 
 - **1.4.6**:
+  - Resume: after a Network Update, a TF card update or Restart, the Q2 comes back to the song and the second you were playing. Stock saved that place only when the Q2 powered off, so these went back to wherever it was at the last power-off, however long ago.
   - Battery: Tidal's and Baidu's streaming helpers no longer check for work in the background. Baidu's never runs. Tidal's starts when you open its page in Streaming and stops at **Stop Streaming Services**, so a Q2 that isn't streaming never wakes them.
   - iPod: **Accent** now works in the Minimal theme too. Minimal's own off-white is its first choice and stays the default, so Minimal looks the same until you pick another; any other accent colours Minimal's selection, progress bar and switches. Each theme remembers its own accent, and Classic keeps its Graphite default.
   - iPod: the selection bar is a pill, inset from the screen's edges, so the rounded glass no longer cuts off its corners. In Classic and Minimal alike; album grids keep their rounded squares.
