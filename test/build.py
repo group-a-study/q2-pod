@@ -616,6 +616,9 @@ def validate_assets(directory):
             dots = named['slide_indicator1'][1]
             assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
             assert named['slide_view'][1] == [0, 0, 375, 186]
+            # The dots' own anchor, the slide_view's centre: stock's, with none, followed a swipe's offset.
+            anchor = named['slide_indicator1'][2]
+            assert anchor['anchor_x'] == f'{375 // 2 - dots[0]}px' and anchor['anchor_y'] == '0px' and 0 < dots[3] // 2
             # The lyrics page (patch/lyrics.c): its rows span the page, a LYRIC_SLOT each after a blank one,
             # three to its 178px; the text, LYRIC_X in, clears the glass's corners, as the art does.
             lrc, slot = named['view_lrc'][3][0][2], inc('LYRIC_SLOT')
