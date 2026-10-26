@@ -606,6 +606,9 @@ def validate_assets(directory):
             dots = named['slide_indicator1'][1]
             assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
             assert named['slide_view'][1] == [0, 0, 375, 186]
+            # The dots' own anchor, the slide_view's centre: stock's, with none, followed a swipe's offset.
+            anchor = named['slide_indicator1'][2]
+            assert anchor['anchor_x'] == f'{375 // 2 - dots[0]}px' and anchor['anchor_y'] == '0px' and 0 < dots[3] // 2
             # The lyric rows: stock's 225px, centred, NP_LRC_GUTTER clear of scroll_lrc's edges each side.
             lrc = named['view_lrc'][3][0][2]
             assert named['view_lrc'][2]['self_layout'] == f'default(x={75 - NP_LRC_GUTTER},y=0,w={235 + 2 * NP_LRC_GUTTER},h=178)'
