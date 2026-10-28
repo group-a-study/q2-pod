@@ -8597,7 +8597,9 @@ static void cpu_poll(void) {
         if (pending) rename(CPU1_PENDING, CPU1_BAD);
         st.cpu_bad = pending || !access(CPU1_BAD, 0) ? 2 : 1;
     }
-    int off = st.low_power && !g_backlight_status && !video_on() && st.cpu_bad == 1;
+    /* a speaker playing keeps both too: one core, busy decoding a hi-res album, starved the AirPlay
+     * app and its sender (airplay.c) */
+    int off = st.low_power && !g_backlight_status && !video_on() && !airplay_on() && st.cpu_bad == 1;
     if (off == st.cpu_off) return;
     unsigned now = time_now_ms();
     if (!off) { /* a refused online is retried once a second */
