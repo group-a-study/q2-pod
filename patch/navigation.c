@@ -3810,6 +3810,7 @@ int ringnav_playing(void *win, void *ctx) {
         st.held_sec = 0;
     np_sync(win);
     visualizer_attach(win);
+    airplay_button(win);
     return result;
 }
 
@@ -8834,9 +8835,12 @@ static int np_animating(void) {
 #endif
 }
 
-/* Keep stock VOLUME for wired/USB and boot; Bluetooth saves its own level. */
+/* Keep stock VOLUME for wired/USB and boot; Bluetooth saves its own level, and so does an AirPlay
+ * speaker while it plays (airplay.c). */
 int ringnav_write_config(int value, const char *section, const char *key) {
-    if (!tk_strcmp(section, "PLAYSET") && !tk_strcmp(key, "VOLUME") && mclGetOutputWay() == 1)
+    if (!tk_strcmp(section, "PLAYSET") && !tk_strcmp(key, "VOLUME") && airplay_on())
+        section = "Q2POD", key = "AIRVOL";
+    else if (!tk_strcmp(section, "PLAYSET") && !tk_strcmp(key, "VOLUME") && mclGetOutputWay() == 1)
         key = "BT_VOLUME";
     return stock_write_config_trampoline(value, section, key);
 }
@@ -8976,6 +8980,7 @@ int ringnav_sleep(void *loop) {
     spot_poll();
     radio_poll();
     addon_poll();
+    airplay_poll();
     playback_poll();
     resume_poll();
     power_poll();

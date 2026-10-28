@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.5.3**:
+  - AirPlay (this fork's test builds): play what the Q2 plays on an AirPlay speaker, Sonos included. Install **AirPlay** from System settings → Apps, then tap the AirPlay button left of shuffle on Now Playing (or **AirPlay** on its ⋯ page) and pick a speaker. The Q2 goes quiet and the speaker plays the same music about a second behind; pause, skip and seek follow, the wheel sets the speaker's volume (saved apart, so your earphones' level comes back afterwards), and the lyrics follow the speaker. The Q2's EQ is left out, as it's meant for your earphones. Pick **This Q2** to play on the Q2 again. Local music and Tidal only; DSD plays on the Q2.
   - Clock: prevents background time conversions from briefly corrupting the status bar time, Auto Light Mode and timezone offsets.
   - Playlists: creating a playlist no longer reuses an occupied ID after sorting by name, and database failures show an error.
   - Playlists: Delete Playlist confirms before removing the playlist and its entries, refreshes the list after success and reports failures. Music files and the current playback queue stay intact.

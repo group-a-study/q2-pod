@@ -484,7 +484,8 @@ int ringnav_fwupdate(void *win, void *ctx) {
  * the page opens again. */
 #define SH_JSON "/tmp/q2-shelf.json"
 #define SH_LIST SH_DIR "/sources.list" /* the last list fetched, for the page offline */
-#define SH_LIST_URL "https://raw.githubusercontent.com/DiamondBond/q2-pod/main/sources.list"
+/* the airplay branch's list, which adds AirPlay (this fork's test builds) */
+#define SH_LIST_URL "https://raw.githubusercontent.com/group-a-study/q2-pod/airplay/sources.list"
 #define SH_RESERVE (64ull << 20) /* left free on the card beyond a download or what it unpacks */
 #define SH_STALE_MS (10 * 60 * 1000ull)
 enum { JOB_CHECK = 1, JOB_INSTALL, JOB_REMOVE, JOB_ERASE };

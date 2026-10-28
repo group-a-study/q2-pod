@@ -2,7 +2,8 @@
  * settings' Apps from their own GitHub releases (netupdate.c) or unzipped to the card by hand, as
  * Spotify's librespot is. Q2 Pod knows none of them by name: each is a card folder .<id> holding
  *   q2app    its manifest, key=value lines: name (its Streaming row's), search (the search box's
- *            hint) and qr (1: its row turns it on and shows its QR code once it answers);
+ *            hint), qr (1: its row turns it on and shows its QR code once it answers) and hidden
+ *            (1: no Streaming row, its page opened by id: addon_open_id, as AirPlay's is);
  *   run      its launcher, which copies the app to /tmp and runs it there in a restart loop, so
  *            the card is never kept busy, leaving the loop's pid in /tmp/q2-<id>;
  *   q2-<id>  the app;
@@ -43,7 +44,7 @@
  * socket gone), to start again once its loop is gone. */
 typedef struct {
     char id[APP_ID], name[32], tips[32], bin[48], run[48], pid[32], state[40], browse[48], icon[56];
-    int qr, present, launched, hold, relaunch, restart;
+    int qr, hidden, present, launched, hold, relaunch, restart;
     unsigned polled, launch_at, restart_at;
 } app_t;
 
@@ -92,6 +93,7 @@ int addon_scan(void) {
         field(raw, "search", a->tips, sizeof a->tips);
         if (!a->tips[0]) tk_snprintf(a->tips, sizeof a->tips, "Search");
         a->qr = number(raw, "qr") == 1;
+        a->hidden = number(raw, "hidden") == 1;
         a->present = !access(a->bin, 0);
         /* the edition's size first, the other scaled to fit (navigation.c set_child), else
          * stream_app */
@@ -106,7 +108,7 @@ int addon_scan(void) {
     if (d) closedir(d);
     ap.shown = 0;
     for (int i = 0; i < ap.n; ++i) { /* by name: an insertion, eight at most */
-        if (!ap.a[i].present) continue;
+        if (!ap.a[i].present || ap.a[i].hidden) continue;
         int k = ap.shown++;
         for (; k && strcasecmp(ap.a[ap.order[k - 1]].name, ap.a[i].name) > 0; --k)
             ap.order[k] = ap.order[k - 1];
@@ -770,15 +772,11 @@ static int closed(void *ctx, void *event) {
     return 0;
 }
 
-/* An app's Streaming row (navigation.c ringnav_stream; ctx: its place by name at the last scan):
- * the app started if it isn't, and its page; gone from the card since, the page says so. */
-int addon_open(void *ctx, void *event) {
-    (void)event;
-    int k = (int)(long)ctx;
-    if (k < 0 || k >= ap.shown || pg.page || !(pg.lv = calloc(ADDON_DEPTH, sizeof *pg.lv)))
-        return 0;
+/* App slot i's page, the app started if it isn't; gone from the card since, the page says so. */
+static int open_slot(int i) {
+    if (pg.page || !(pg.lv = calloc(ADDON_DEPTH, sizeof *pg.lv))) return 0;
     if (!(pg.page = page_open("addon_page", closed, keyup))) return free(pg.lv), pg.lv = 0, 0;
-    pg.a = ap.order[k];
+    pg.a = i;
     app_t *a = app();
     int missing = access(a->bin, 0);
     if (!missing && (!a->launched || access(a->pid, 0))) launch(a), pg.code = a->qr;
@@ -792,6 +790,22 @@ int addon_open(void *ctx, void *event) {
     }
     pg.timer = timer_add(tick, 0, 250);
     show();
+    return 1;
+}
+
+/* An app's Streaming row (navigation.c ringnav_stream; ctx: its place by name at the last scan). */
+int addon_open(void *ctx, void *event) {
+    (void)event;
+    int k = (int)(long)ctx;
+    if (k >= 0 && k < ap.shown) open_slot(ap.order[k]);
+    return 0;
+}
+
+/* The page of the app with this id, found on the card again first; 0 when it isn't there. */
+int addon_open_id(const char *id) {
+    addon_scan();
+    for (int i = 0; i < ap.n; ++i)
+        if (ap.a[i].present && !strcmp(ap.a[i].id, id)) return open_slot(i) || pg.page;
     return 0;
 }
 
