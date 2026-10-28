@@ -1245,7 +1245,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
     # a prefix-trimmed typo cannot silently disable a screen this way.
     from ipod import (AUDIT, ARTIST_ALBUMS, ARTIST_PAGE, HOME_PAGE, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
-                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art)
+                      STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, red_glyph)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
@@ -1515,6 +1515,9 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO):
             icons[f'stream_{n}.png'] = (like, row_icon(data))
         icons['default_album_home.png'] = ('default_album_big.png', art)
         icons['default_album_flow.png'] = ('default_album_big.png', sized_art(art, 160))
+        # Now Playing's AirPlay button while a speaker plays (airplay.c): stock's glyph in the heart's
+        # red, which the accent maps as it does the heart's
+        icons['airplay_on.png'] = ('airplay.png', red_glyph(cat(xx+'airplay.png')))
     added = []
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()},
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
