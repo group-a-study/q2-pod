@@ -87,6 +87,7 @@ HOME_LIST_W = 375
 NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
 NP_ICON_PAD = inc('NP_ICON_PAD')  # play_fav/play_order: 28px, centred, glyph ends 4px above
+NP_ICONS_UP = 8                   # Now Playing's icon row (AirPlay, order, favourite) clear of the page dots
 NP_MARGIN = 16
 NP_POS_X = max(NP_MARGIN, corner_x(30 + (NP_TOP - 16) // 2, 16)) + 6  # "3 of 12", 16px text
 NP_ICONS_END = 375 - corner_x(30, NP_TOP)  # the 50px icon images fill the row's height
@@ -405,14 +406,15 @@ def playing_page(root):
 
     art_y = NP_ART_Y
     text_w = 375 - NP_MARGIN - NP_TEXT_X
-    # Favourite centres beneath More; leave 6px between its target and shuffle/order. The row ends
-    # with the art, clear of the dots: the 28px glyphs, centred, end 15px above their frame's bottom.
-    icons_y = art_y + NP_ART - NP_ICON + NP_ICON_PAD
+    # Favourite centres beneath More; leave 6px between its target and shuffle/order. The row's 28px
+    # glyphs, centred, end 15px above their frame's bottom, NP_ICONS_UP above the art's foot, so the
+    # dots below have room.
+    icons_y = art_y + NP_ART - NP_ICON + NP_ICON_PAD - NP_ICONS_UP
     fav_x = named['img_more'][1][0]
     for name, x in (('img_playmode', fav_x - NP_ICON - 6), ('img_fav', fav_x)):
         buttons[3].remove(named[name])
         named[name][1] = [x, icons_y, NP_ICON, NP_ICON]
-    top = art_y + (icons_y - NP_ICON_PAD - art_y - (28 + 6 + 22 + 6 + 22)) // 2
+    top = art_y + (icons_y + NP_ICONS_UP - NP_ICON_PAD - art_y - (28 + 6 + 22 + 6 + 22)) // 2  # the text stays
     title[1] = [NP_TEXT_X, top, text_w, 28]
     # every state: the labels are disabled (enable false), so a lone normal size would not apply
     title[2].update({'style': 's_scrlabel_white20l', **{f'style:{s}:font_size': str(NP_TITLE_PX) for s in ('normal', 'disable', 'focused')}})
