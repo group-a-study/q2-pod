@@ -213,10 +213,7 @@ LOGO_HOOK = (b'   \tdisplay_logo /release/assets/default/raw/images/xx/logo.jpg\
              b'   \tl=/mnt/data/boot-logo.jpg; [ -f $l ] || { l=/%s; light=0; grep -qx LIGHT=1 /mnt/data/config.ini 2>/dev/null && light=1; grep -qx LIGHT=2 /mnt/data/config.ini 2>/dev/null && case $(date +%%H) in 0[7-9]|1[0-8]) light=1;; esac; [ $light = 1 ] && [ -f /%s ] && l=/%s; }; display_logo $l\n'
              % (LOGO.encode(), LOGO_LIGHT.encode(), LOGO_LIGHT.encode()))
 REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
-               b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n'
-               b'/usr/bin/q2trace >/dev/null 2>&1 &\n')
-# --dev only (docs/remote.md#trace): the playback trace, a line a second to the card's q2pod-trace.log.
-TRACE = 'usr/bin/q2trace'
+               b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n')
 # --dev only (docs/remote.md#log): demo's console output, and hciplayer's, which inherits it, in RAM, so
 # emptied once a minute past 4 MB (O_APPEND keeps demo writing at its end). In BOOT_HOOK's start path.
 LOG_HOOK = (b'        while :; do\n            /release/bin/demo\n',
@@ -1595,12 +1592,11 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
                                **({LOGO_LIGHT: (xx+'list_tidal.png', light)} if light else {}),  # the swapped logo.jpg has no stock inode left
                                **({LYRIC_FONT: (FONT, (ROOT/'assets/fonts/lyric.ttf').read_bytes())} if ipod else {}),
-                               **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1])),
-                                   TRACE: (HELPER_LIKE, compile_helper(out, cat, 'trace', 'q2trace', HELPER_LIBS[:1]))} if dev else {})}.items():
+                               **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = inode(p, like.encode())
         check(stock is not None, f'Missing stock inode for {path}')
         name = path.rsplit('/', 1)[-1]
-        if path not in (HELPER, BOOT, REMOTE, TRACE): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
+        if path not in (HELPER, BOOT, REMOTE): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
         path = path.encode()
         entry = path+b' F '+b' '.join(stock.groups())+b' cat '+shlex.quote(str(out/name)).encode()+b'\n'
         at = p.index(b'# START OF DATA')  # definitions precede the embedded data
@@ -1673,7 +1669,7 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
         **({'aic_notifier': aic_notifier} if aic_notifier else {}),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
-        version=version, variant=variant, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes()), 'q2trace_sha256': sha((out/'q2trace').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        version=version, variant=variant, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         **({'rotator_clock': rotator} if rotator else {}),
         **({'pwm_clock': pwm} if pwm else {}),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},

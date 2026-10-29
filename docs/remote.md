@@ -88,17 +88,3 @@ All of it is injected by writing input events to `/dev/input/eventN`, so the fir
 ## Protocol
 
 The client sends the key, a newline, the command, a newline, then any stdin. `sh` sends its script as that stdin and runs it under `setsid`, recording its pid in `/tmp/q2remote-*.pid` so Ctrl-C can kill its process group, and ends the output with `\n\0q2rc=STATUS\n`, where the client stops reading: a job left in the background doesn't hold the reply. The script isn't exported, so it may be any size. The helper answers `OK\n` and then streams the command's output until it exits, or answers `ERR\n` and closes. A handshake has to arrive within 10 seconds. `q2remote --shot` writes `Q2FB\0`, then the width, height, stride and size as little-endian 32-bit integers, then the displayed page; the client has it gzipped on the Q2, then rotates and encodes it. `state` reads demo's byte globals with `dd` from `/proc/<pid>/mem` at stock V1.32's addresses (`GLOBALS` in `tools/q2remote.py`). `python3 test/remote.py` builds the helper for the host and checks authentication, rotation, revocation, the internal copy, framing and the input encoders.
-
-## Trace
-
-`--dev` builds also start `/usr/bin/q2trace` (`patch/trace.c`) from `S90play`, beside q2remote: a playback trace for chasing cut-outs that come and go (with the screen off, through headphones or an AirPlay speaker). A line a second goes to `q2pod-trace.log` at the card's root:
-
-- the UTC time, uptime, and demo's backlight and volume bytes;
-- CPU busy since the last line, load, the CPUs online and `MemAvailable`;
-- the Wi-Fi signal;
-- each open playback stream (`/proc/asound/card*/pcm*p/sub0/status`): its state, delay, avail, and hardware and application pointers;
-- each hciplayer thread: its state, the kernel function it waits in (`wchan`) and its CPU ticks since the last line;
-- the audio interrupts (`aic`, `dma`, `i2s` in `/proc/interrupts`) since the last line;
-- every second line, any task in uninterruptible sleep, with its `wchan`.
-
-Between them come the kernel's new messages (`K:`, from `/dev/kmsg`) and new lines of demo's and hciplayer's output (`L:`, from `/tmp/q2-demo.log`). It is kept in RAM and appended every 10 s while the card is mounted, opened and closed each time; past 8 MB the file becomes `q2pod-trace.log.1`. Release builds have none of it.
