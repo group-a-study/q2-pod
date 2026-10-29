@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive a --dev Q2 over Wi-Fi (Q2_HOST, and Q2_KEY or a key file; see docs/remote.md).
 
-usage: q2remote.py {sh [--timeout S] COMMAND|shot [--settle] OUT.png|state|wake|key NAME [MS]|wheel N [--step-ms MS]|tap X Y|swipe X1 Y1 X2 Y2 [MS]|push LOCAL REMOTE|pull REMOTE LOCAL|install UPDATE.TAR|log [LINES|-f|--clear]|events EVENT [S]|devices|find|reboot [--wait]}"""
+usage: q2remote.py {sh [--timeout S] COMMAND|shot [--settle] OUT.png|state|wake|key NAME [MS]|wheel N [--step-ms MS]|tap X Y|swipe X1 Y1 X2 Y2 [MS]|push LOCAL REMOTE|pull REMOTE LOCAL|install UPDATE.TAR|events EVENT [S]|devices|find|reboot [--wait]}"""
 import concurrent.futures
 import contextlib
 import hashlib
@@ -29,7 +29,6 @@ WHEEL_UNITS, WHEEL_STEP, WHEEL_SETTLE, SAMPLE_US = 28, 11, 4, 20000
 TIMEOUT = 30
 KEY_FILE = pathlib.Path(__file__).resolve().parents[1] / "q2remote.key"  # git-ignored
 CARD = "/mnt/mmc"
-LOG = "/tmp/q2-demo.log"  # --dev builds' demo output (tools/build.py LOG_HOOK)
 TRAILER = re.compile(rb"\n\0q2rc=(\d+)\n\Z")  # run()'s last line: the exit status
 SETTLE_S, SETTLE_POLL_S, REBOOT_WAIT_S = 5, .15, 360
 # demo's byte globals at stock V1.32's addresses, as build/*/peq_platform.h has them; test/remote.py checks them.
@@ -437,14 +436,6 @@ def main(argv):
     if cmd == "install" and len(a) == 1:
         install(a[0])
         print("update.tar is on the card: System settings → System Update → TF card update"); return 0
-    if cmd == "log" and len(a) <= 1:
-        if a == ["-f"]:
-            shell(f"tail -f {LOG}", timeout=None, sink=sys.stdout.buffer); return 0
-        if a == ["--clear"]:
-            shell(f": >{LOG}"); return 0
-        if a and not a[0].isdigit(): raise ValueError("usage: log [LINES|-f|--clear]")
-        out, rc = run(f"tail -n {a[0] if a else 100} {LOG}")
-        sys.stdout.buffer.write(out); return rc
     if cmd == "find" and not a:
         print("\n".join(find())); return 0
     if cmd == "reboot" and a in ([], ["--wait"]):

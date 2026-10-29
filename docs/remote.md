@@ -45,7 +45,6 @@ Each connection rereads `/mnt/mmc/q2remote.key` while the card is mounted, so re
 | `push LOCAL REMOTE`          | Copies a file to the Q2 through `REMOTE.part`, synced, and checks its MD5. Refuses `/mnt/mmc` while USB storage has the card.                                                                                                              |
 | `pull REMOTE LOCAL`          | Copies a file from the Q2.                                                                                                                                                                                                                 |
 | `install UPDATE.TAR`         | Replaces the card's `update.tar`, checks it as read back from the card, and names the menu that flashes it.                                                                                                                                |
-| `log [LINES\|-f\|--clear]`   | Prints the last `LINES` (default 100) of demo's output, follows it, or empties it.                                                                                                                                                         |
 | `events N [S]`               | Prints raw events from `/dev/input/eventN` for `S` seconds (default 5).                                                                                                                                                                    |
 | `devices`                    | Lists the input devices and their key and axis codes.                                                                                                                                                                                      |
 | `find`                       | Lists the addresses on this network where q2remote answers.                                                                                                                                                                                |
@@ -74,10 +73,6 @@ All of it is injected by writing input events to `/dev/input/eventN`, so the fir
 - A tap hides the wheel's selection, and the next tick only shows it again without moving.
 - Busybox has no `timeout`, `pkill` or `killall -r`. Background a command and `kill $!` it. Redirect a job you leave running in the background (`>/dev/null 2>&1 &`): its output has nowhere to go once `sh` returns.
 - Settings: `/mnt/data/config.ini`; the card is at `/mnt/mmc`. A changed demo pid in `state` means demo restarted.
-
-## Log
-
-`--dev` builds start demo with its output, and that of the hciplayer it starts, appended to `/tmp/q2-demo.log` instead of the serial console; release builds are unchanged. The file is in RAM: once a minute it is emptied if it has grown past 4 MB, and it is gone after a reboot. demo's stdout is block-buffered once it goes to a file, so its lines arrive in batches rather than as they are printed; stderr arrives at once.
 
 ## Troubleshooting
 
