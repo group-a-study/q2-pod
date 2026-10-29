@@ -1,0 +1,22 @@
+name: Test firmware release
+# A push to this branch publishes its update.tar (the iPod edition) as the fork's latest release, which a
+# test build's Network Update fetches. test-release.sh builds them locally: the stock ZIP isn't public.
+on:
+  push:
+    branches: [test-firmware]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sha256sum -c SHA256SUMS
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$(cat TAG)" update.tar SHA256SUMS
+          -R "$GITHUB_REPOSITORY" --target "$(cat SOURCE)" --latest
+          --title "Q2 Pod test build $(cat TAG)" --notes-file NOTES.md
