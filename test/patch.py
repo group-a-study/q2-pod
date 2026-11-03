@@ -6986,6 +6986,7 @@ class GridCoverMachine(Machine):
            'calloc@GLIBC_2.0')
     def __init__(self):
         super().__init__(); self.mock(*self.MOCKS); self.errno=self.alloc(4); self.word(self.errno,4)  # EINTR
+        self.mock('snprintf@GLIBC_2.0')  # playlist_album's path to .q2-playlist (the base machine formats it)
         self.files={}; self.handles={}; self.found=self.extern=self.playlist=0; self.out=None  # ffmpeg's output; None: no fork
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
