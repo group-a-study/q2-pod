@@ -6986,7 +6986,7 @@ class GridCoverMachine(Machine):
            'calloc@GLIBC_2.0')
     def __init__(self):
         super().__init__(); self.mock(*self.MOCKS); self.errno=self.alloc(4); self.word(self.errno,4)  # EINTR
-        self.files={}; self.handles={}; self.found=self.extern=0; self.out=None  # ffmpeg's output; None: no fork
+        self.files={}; self.handles={}; self.found=self.extern=self.playlist=0; self.out=None  # ffmpeg's output; None: no fork
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if name not in self.MOCKS: return super().hook(u,address,size,unused)
@@ -7004,7 +7004,8 @@ class GridCoverMachine(Machine):
         elif name=='ftell': ret=len(self.files[self.handles[a]])
         elif name=='rename': self.files[self.text(b)]=self.files.pop(self.text(a))
         elif name=='unlink': self.files.pop(self.text(a),None)
-        elif name=='access': ret=0 if self.text(a).startswith('/mnt/mmc/A/') else -1
+        elif name=='access':  # the folder's files are there; its .q2-playlist only for a playlist's album
+            p=self.text(a); ret=0 if p.startswith('/mnt/mmc/A/') and (self.playlist or not p.endswith('/.q2-playlist')) else -1
         elif name=='calloc': ret=self.alloc(a*b)
         self.returns(ret,clobber=True)
     def cover(self,track,fn='coverflow_grid_cover',**kw):
@@ -7023,8 +7024,14 @@ assert m.cover('02.opus',out=b'')==0 and m.files=={m.dst:b'old'} and m.seen.coun
 assert m.cover('02.opus',out=b'')==0 and m.seen==['toolsGetAlbumCover'],m.seen  # the miss is remembered
 assert m.cover('03.opus',out=b'jpeg')==1 and m.files=={m.dst:b'jpeg'} and 'toolsGetExternCover' not in m.seen
 assert m.seen.index('pthread_mutex_unlock')<m.seen.index('fork')<m.seen.index('pthread_mutex_lock')
-assert m.cover('04.opus','coverflow_album_cover',extern=1)==1 and m.seen==['toolsGetAlbumCover','toolsGetExternCover']
+assert m.cover('04.opus','coverflow_album_cover',extern=1)==1 and m.seen==['access','toolsGetAlbumCover','toolsGetExternCover']
 assert m.cover('05.opus','coverflow_album_cover',extern=0)==1 and 'fork' in m.seen
+# A playlist kept as an album (q2-applemusic's .q2-playlist beside its songs): the Albums grid takes the
+# folder's picture, the playlist's, before the first song's embedded art; a track row keeps the song's own.
+assert m.cover('06.m4a','coverflow_album_cover',playlist=1,extern=1,found=1)==1 and m.seen==['access','toolsGetExternCover'],m.seen
+assert m.cover('06.m4a','coverflow_album_cover',playlist=1,extern=0,found=1)==1 and m.seen==['access','toolsGetExternCover','toolsGetAlbumCover'],m.seen
+assert m.cover('06.m4a',playlist=1,extern=1,found=1)==1 and m.seen==['toolsGetAlbumCover'],m.seen
+assert m.cover('07.m4a','coverflow_album_cover',playlist=0,extern=1,found=1)==1 and m.seen==['access','toolsGetAlbumCover'],m.seen
 passed()
 
 # Coverflow depth (docs/internals.md#coverflow-depth): the payload's renderer, run as MIPS, draws

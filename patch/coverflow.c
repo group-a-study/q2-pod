@@ -212,6 +212,18 @@ static int beside_art(const char *track, const char *dst, int w, int h, int shar
     return ok;
 }
 
+/* Whether track's folder is a playlist a card app keeps as an album (q2-applemusic's Playlists/<name>/,
+ * marked by its .q2-playlist): its cover.jpg is the playlist's picture, the album's in Coverflow and
+ * the Albums grid, while each song's embedded art is its own (Now Playing's). Elsewhere a folder
+ * image only stands in for missing embedded art, as before. */
+static int playlist_album(const char *track) {
+    char m[1024];
+    const char *slash = strrchr(track, '/');
+    if (!slash) return 0;
+    snprintf(m, sizeof(m), "%.*s/.q2-playlist", (int)(slash - track), track);
+    return !access(m, 0);
+}
+
 /* Whether Coverflow marked the album of the track the player parsed (g_play_id3_info, keyed as
  * Home's art is) empty: its build found no art for the album's track. */
 static int marked_empty(const char *track) {
@@ -247,6 +259,7 @@ int coverflow_player_cover(const char *track, const char *dst, int w, int h) {
 static int grid_cover(const char *track, const char *dst, int w, int h, int album) {
     static unsigned *miss __attribute__((section(".scratch"))), n __attribute__((section(".scratch")));
     const char *dot = strrchr(track, '.');
+    if (album && playlist_album(track) && toolsGetExternCover(track, dst, w, h) == 1) return 1;
     if (toolsGetAlbumCover(track, dst, w, h) == 1) return 1;
     if (!dot || (strcasecmp(dot, ".opus") && strcasecmp(dot, ".ogg"))) return 0;
     unsigned key = fnv(FNV_SEED, (const unsigned char *)track);
@@ -271,7 +284,8 @@ int coverflow_album_cover(const char *track, const char *dst, int w, int h) {
 
 /* One album: embedded art, then beside_art, then ffmpeg's read of the embedded art, last as it
  * costs a process for every album without art; written to .tmp and renamed. An empty file marks
- * "no art", so the placeholder shows and the album is not retried until Refresh Coverflow. */
+ * "no art", so the placeholder shows and the album is not retried until Refresh Coverflow. A
+ * playlist kept as an album (playlist_album) takes its folder's picture first. */
 static void build_art(const job_t *j) {
     char dst[512], tmp[512];
     if (access(j->track, 0)) return; /* storage gone: no marker, the next open retries */
@@ -280,11 +294,14 @@ static void build_art(const job_t *j) {
     /* toolsGetAlbumCover goes through the shared /tmp/.tmp_picture, which stock guards with
      * either lock (parse_albumcovertask_thd, player_parsecover_thd); hold both. Stock never
      * nests them, so this order cannot deadlock. */
-    pthread_mutex_lock((void *)parse_cover_mutex);
-    pthread_mutex_lock((void *)g_playcover_mutex);
-    int ok = toolsGetAlbumCover(j->track, tmp, ART_SIZE, ART_SIZE) == 1;
-    pthread_mutex_unlock((void *)g_playcover_mutex);
-    pthread_mutex_unlock((void *)parse_cover_mutex);
+    int ok = playlist_album(j->track) && beside_art(j->track, tmp, ART_SIZE, ART_SIZE, 0, thumb);
+    if (!ok) {
+        pthread_mutex_lock((void *)parse_cover_mutex);
+        pthread_mutex_lock((void *)g_playcover_mutex);
+        ok = toolsGetAlbumCover(j->track, tmp, ART_SIZE, ART_SIZE) == 1;
+        pthread_mutex_unlock((void *)g_playcover_mutex);
+        pthread_mutex_unlock((void *)parse_cover_mutex);
+    }
     ok = ok || beside_art(j->track, tmp, ART_SIZE, ART_SIZE, j->shared, thumb) ||
          ff_thumb(j->track, tmp, ART_SIZE, ART_SIZE);
     if (ok && !rename(tmp, dst)) return;
