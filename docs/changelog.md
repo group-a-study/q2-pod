@@ -1,5 +1,8 @@
 # Changelog
 
+- **1.6.5**:
+  - Library: an artist's page shows all of the artist's albums when the album artist is spelled with different capitals on some of them. Apple Music, for one, has "Florence + the Machine" on some albums and "Florence + The Machine" on another. **Artists** listed one artist, but its page showed only one spelling's albums.
+
 - **1.6.4**:
   - Settings: **Playback** is shorter. Artists, Artist Album Order, Year Order, Folder Root, Folder Skip and Folder Album Cover moved to **Playback → Library & Folders**, and ReplayGain moved next to Gain. Your settings are kept.
   - Settings: **System settings → Controls** is new and holds the wheel and button settings: Wheel Sensitivity, Wheel QS, Hold Return and Single Press Scrub from Display, Key Tone, Click With Headphones and Buttons Lock from System settings, and Wake and Volume Guard from Power. Your settings are kept.
