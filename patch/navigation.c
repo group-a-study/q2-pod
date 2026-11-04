@@ -2648,9 +2648,17 @@ char *ringnav_id3_path(char *id3, const char *path) {
 }
 /* The library scan's folder walk (SCAN_DIRS in tools/build.py): its first exclusion, strcmp(name,
  * "."), here skips every hidden folder, as Folder view's list does, so a card app's own
- * (q2-deezer's stream cache in .deezer/stream) never joins the Library. */
-int ringnav_scan_dir(const char *name, const char *dot) {
-    return name[0] == '.' ? 0 : strcmp(name, dot);
+ * (q2-deezer's stream cache in .deezer/stream) never joins the Library; and a folder holding a
+ * .nomedia file, with all it holds (Android's mark): q2-applemusic marks a Deezer album that is in
+ * Apple Music/ too, so the library has it once, and any folder can be kept out by hand. The walk
+ * keeps the folder it reads, name's parent, in $s1 (its opendir's and "%s/%s"'s), passed on as dir. */
+__asm__(".globl ringnav_scan_dir\nringnav_scan_dir:\nmove $a2, $s1\nj scan_dir\n");
+int scan_dir(const char *name, const char *dot, const char *dir) {
+    char mark[1024];
+    if (name[0] == '.') return 0;
+    tk_snprintf(mark, sizeof(mark), "%s/%s/.nomedia", dir, name);
+    if (!access(mark, 0)) return 0;
+    return strcmp(name, dot);
 }
 
 /* Whether s is UTF-8: every lead byte with its continuation bytes, nothing overlong, no surrogate,

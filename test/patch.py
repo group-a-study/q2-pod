@@ -6941,8 +6941,16 @@ for given,want in ((b'Caf\xc3\xa9 \xc3\x91and\xc3\xba','Café Ñandú'),(b'Caf\x
     assert m.call(address=payload_syms['ringnav_cue_text'],args=(buf,m.string('utf-8'),m.string('gbk'),0),gap=0)==1 and m.raw(buf).decode()==want,(given,m.raw(buf)); passed()
 # The library scan (SCAN_DIRS) skips every hidden folder: q2-deezer's .deezer/stream never joins the Library.
 assert struct.unpack_from('<I',demo,fileoff(demo,SCAN_DIRS[0]))[0]==jal(payload_syms['ringnav_scan_dir'])
-m=Machine(); dot=m.string('.')
-assert [m.call(address=payload_syms['ringnav_scan_dir'],args=(m.string(n),dot,0,0),gap=0)!=0 for n in ('.','..','.deezer','.Trashes','Music','Deezer')]==[False,False,False,False,True,True]; passed()
+m=Machine(); dot=m.string('.'); card=m.string('/mnt/mmc/Deezer/Broadcast')
+# ringnav_scan_dir hands the walk's folder ($s1) on: move $a2,$s1; j scan_dir.
+stub=payload_syms['ringnav_scan_dir']
+assert m.u.mem_read(stub,4)==struct.pack('<I',0x02203025),bytes(m.u.mem_read(stub,8)).hex()
+assert struct.unpack('<I',m.u.mem_read(stub+4,4))[0]==0x08000000|(payload_syms['scan_dir']&0x0fffffff)>>2
+scan=lambda n: m.call(address=payload_syms['scan_dir'],args=(m.string(n),dot,card,0),gap=0)!=0
+assert [scan(n) for n in ('.','..','.deezer','.Trashes','Music','Deezer')]==[False,False,False,False,True,True]
+# A folder holding .nomedia is skipped with all it holds (q2-applemusic marks Deezer's copy of an album it has).
+m.present.add('/mnt/mmc/Deezer/Broadcast/2005 - Tender Buttons/.nomedia')
+assert not scan('2005 - Tender Buttons') and scan('2009 - Ha Ha Sound'); passed()
 
 # Now Playing's lyric follow (LYRIC_FOLLOW): stock's scroll_to past the end clamps to a row top, the
 # content padded to it, not to 275 - 178 = 97 through a row; repeated it stays; a short page is left.

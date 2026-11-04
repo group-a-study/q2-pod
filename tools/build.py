@@ -312,7 +312,8 @@ CUE_TEXT = (0x5c06d0, 0x5c0794, 0x5c084c, 0x5c0908, 0x5c0bc8, 0x5c0f84, 0x5c130c
 # The library scan's folder walk (the unnamed recursive function toolsLoadAllFile runs, 0x5c3b64) skips
 # ".", "..", .LOST.DIR, lost+found and the like by name; its first strcmp (jalr, with "." in its delay
 # slot) becomes jal ringnav_scan_dir, which skips every hidden folder, as Folder view's list does: a card
-# app's own (q2-deezer's stream cache) never joins the Library.
+# app's own (q2-deezer's stream cache) never joins the Library; and every folder holding a .nomedia file
+# (the walk's folder, in $s1, is passed on).
 SCAN_DIRS = (0x5c3c0c, 0x0320f809)
 # toolsLoadAllFile stops a scan at 20,000 songs: lw $2,count; slti $2,$2,0x4e20 before each entry. 65,000
 # overflows slti's signed immediate, so the lw becomes jal ringnav_scan_room and the slti loads the count
