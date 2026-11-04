@@ -315,6 +315,13 @@ CUE_TEXT = (0x5c06d0, 0x5c0794, 0x5c084c, 0x5c0908, 0x5c0bc8, 0x5c0f84, 0x5c130c
 # app's own (q2-deezer's stream cache) never joins the Library; and every folder holding a .nomedia file
 # (the walk's folder, in $s1, is passed on).
 SCAN_DIRS = (0x5c3c0c, 0x0320f809)
+# An artist's albums tab (getAlbumByAlbumArtist): its SQL finds the albums by albumsonger like the name,
+# case aside, as Artists groups the names (COLLATE NOCASE), but its row callback (0x4fc550) then kept a row
+# only if strcmp(name, row's albumsonger) was 0, so an album artist spelled "Florence + the Machine" on some
+# albums and "Florence + The Machine" on others showed one spelling's albums under the one Artists row. Its
+# lw $25 of strcmp's GOT slot loads strcasecmp's, which demo already imports.
+ARTIST_ALBUM_MATCH = (0x4fc5c4, 0x8f99f818)  # lw $25, -0x7e8($gp)
+STRCASECMP_GOT = -0x998
 # toolsLoadAllFile stops a scan at 20,000 songs: lw $2,count; slti $2,$2,0x4e20 before each entry. 65,000
 # overflows slti's signed immediate, so the lw becomes jal ringnav_scan_room and the slti loads the count
 # into a0 in its delay slot; the bnez after it, and its delay slot's stop-flag load, stay.
@@ -1416,6 +1423,10 @@ def build(zip_path, out, logo, ipod=False, dev=False, repo=REPO, aic_idle_wait=T
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, SCAN_DIRS[0] + 4))[0] == 0x24a55110,
           'library scan: expected the "." exclusion')
     patch_word(patched, *SCAN_DIRS, jal(ps['ringnav_scan_dir']), 'the library scan skips hidden folders')
+    check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, GP + STRCASECMP_GOT))[0] ==
+          syms['strcasecmp@GLIBC_2.0'], "artist albums: expected strcasecmp's GOT slot")
+    patch_word(patched, *ARTIST_ALBUM_MATCH, 0x8f990000 | STRCASECMP_GOT & 0xffff,
+               "an artist's albums match its name case aside")
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')

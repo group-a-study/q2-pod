@@ -4346,6 +4346,28 @@ lm.word(payload_syms['library_music'],1); lm.sql=None
 assert lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/database.db'),lm.string('select * from songtable'+' '*2048),123,1),gap=0)==-1
 assert lm.sql is None
 lm.db.close(); passed()
+# The tab's stock row callback (0x4fc550) then keeps a row only if its albumsonger (v[4]) is the name.
+# The SQL found it case aside, so the check is case aside too: one Artists row (COLLATE NOCASE) shows
+# every spelling's albums. Stock dropped the other spelling's; another name is still dropped.
+def artist_album_kept(m,artist,albumsonger):
+    seen=[]
+    def stop(u,addr,size,_):
+        if addr in (0x4fc5d8,0x4fc764): seen.append(addr); u.emu_stop()  # past the check: kept, or dropped
+    hook=m.u.hook_add(UC_HOOK_CODE,stop)
+    values=m.alloc(20)
+    for i,v in enumerate(('7','Unreleased','Florence Welch','/mnt/mmc/Apple Music/F/1.m4a',albumsonger)):
+        m.word(values+4*i,m.string(v))
+    for reg,v in ((UC_MIPS_REG_A0,m.string(artist)),(UC_MIPS_REG_A1,5),(UC_MIPS_REG_A2,values),(UC_MIPS_REG_A3,0),
+                  (UC_MIPS_REG_T9,0x4fc550),(UC_MIPS_REG_SP,0x7000f000),(UC_MIPS_REG_RA,0x70000000)):
+        m.u.reg_write(reg,v)
+    m.u.emu_start(0x4fc550,0x70000000,count=200); m.u.hook_del(hook)
+    return seen==[0x4fc5d8] if seen in ([0x4fc5d8],[0x4fc764]) else None
+for patched in (1,0):
+    am=Machine(patched=bool(patched))  # m stays the Albums test's, which the art keys use next
+    for albumsonger,kept in (('Florence + The Machine',1),('Florence + the Machine',patched),('FLORENCE + THE MACHINE',patched),
+                             ('Florence + The Machine Live',0),('Florence',0)):
+        assert artist_album_kept(am,'Florence + The Machine',albumsonger)==bool(kept),(patched,albumsonger)
+passed()
 # Their stock art cache names (/mnt/mmc/.sldp/<md5>0.jpg): a shared name adds the album artist,
 # a name alone stays; the album page's big cover follows its row's cover task name.
 for e in m.items(m.get(syms['p_deque_showlist']))[:2]: m.word(e+O['REC_ALBUM_ARTIST'],m.get(e+O['REC_NAME']))
