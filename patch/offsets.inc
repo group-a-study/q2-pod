@@ -179,10 +179,16 @@
 #define NP_IPOD_ART_DROP 10 /* the local page's art this far under the first row clear of the glass */
 #define NP_IPOD_TEXT_X 206
 #define NP_IPOD_TEXT_Y 38
-#define NP_IPOD_FAV_X 294 /* fork-only: beside order, where Minimal's sits (tools/ipod.py NP_IPOD_ROW_UP) */
-#define NP_IPOD_FAV_W 68  /* fork-only: its glyph, centred, Minimal's 56 px from order's (44 + 68 / 2 - 44 / 2) */
+/* Fork-only: the icon row's glyphs (AirPlay, order, favourite, each centred in its frame) 24 px apart,
+ * ink to ink (tools/ipod.py NP_IPOD_ICON_GAP), AirPlay where dev74 had it: order's frame at
+ * NP_IPOD_MODE_X, NP_IPOD_ICON wide, as AirPlay's, and favourite's as far right of it (4 px) as
+ * AirPlay's is left (airplay.c), NP_IPOD_FAV_W wide; the row where Minimal's would sit
+ * (tools/ipod.py NP_IPOD_ROW_UP). */
+#define NP_IPOD_MODE_X 254
+#define NP_IPOD_FAV_X 302
+#define NP_IPOD_FAV_W 42
 #define NP_IPOD_FAV_Y 161
-#define NP_IPOD_ICON 44 /* fork-only: AirPlay's and order's width, edge to edge, and favourite's frame next */
+#define NP_IPOD_ICON 44
 #define NP_IPOD_DOTS 276 /* fork-only: the page dots' y in the window, under the bar's reflection */
 #define NP_IPOD_BAR_X 66
 #define NP_IPOD_BAR_Y 245

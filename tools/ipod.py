@@ -154,10 +154,10 @@ HOME_LIST_W = 375
 NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
 NP_ICON_PAD = inc('NP_ICON_PAD')  # play_fav/play_order: 28px, centred, glyph ends 4px above
-# Fork-only: Classic's icon row (AirPlay, order, favourite): order where Minimal's sits on the screen when the row
-# is NP_IPOD_ROW_UP above Minimal's own; AirPlay NP_IPOD_ICON from it, edge to edge, favourite's glyph Minimal's
-# 56 px (50 + 6) from it: its frame, edge to edge with order's, NP_IPOD_FAV_W wide
+# Fork-only: Classic's icon row (AirPlay, order, favourite) NP_IPOD_ROW_UP above where Minimal's sits on the screen,
+# its glyphs NP_IPOD_ICON_GAP apart, ink to ink, AirPlay where dev74 had it (patch/offsets.inc NP_IPOD_MODE_X)
 NP_IPOD_ROW_UP = 16
+NP_IPOD_ICON_GAP = 24
 NP_IPOD_ICON = inc('NP_IPOD_ICON')
 NP_IPOD_FAV_W = inc('NP_IPOD_FAV_W')
 NP_MARGIN = 16
@@ -635,18 +635,17 @@ def playing_page(root, g=SET0):
     text_w = 375 - NP_MARGIN - text_x
     # Favourite centres beneath More; leave 6px between its target and shuffle/order. The row ends
     # with the art, clear of the dots: the 28px glyphs, centred, end 15px above their frame's bottom.
-    # Fork-only, Classic's: order centred where Minimal's would sit NP_IPOD_ROW_UP higher on the screen,
-    # whatever Classic's own art and bar, AirPlay (airplay.c) and favourite's frame beside it edge to edge: AirPlay
-    # NP_IPOD_ICON wide, favourite NP_IPOD_FAV_W, so its glyph sits at Minimal's spacing.
+    # Fork-only, Classic's: the row where Minimal's would sit NP_IPOD_ROW_UP higher on the screen, whatever
+    # Classic's own art and bar, its glyphs NP_IPOD_ICON_GAP apart (patch/offsets.inc NP_IPOD_MODE_X; AirPlay's
+    # frame, airplay.c's, as far left of order's as favourite's is right).
     text_icons_y = art_y + art - NP_ICON + NP_ICON_PAD
     icons_y = text_icons_y
-    fav_x, icon_w, gap = named['img_more'][1][0], NP_ICON, 6
+    fav = named['img_more'][1][0]
+    row = [(fav - NP_ICON - 6, NP_ICON), (fav, NP_ICON)]
     if g.np_ipod:
-        mode_c = with_geometry(SET0).NP_ICONS_END - NP_ICON - 6 - NP_ICON // 2  # Minimal's order, centred
-        icon_w, gap = NP_IPOD_ICON, 0
-        fav_x = mode_c - icon_w // 2 + icon_w + gap
+        row = [(inc('NP_IPOD_MODE_X'), NP_IPOD_ICON), (inc('NP_IPOD_FAV_X'), NP_IPOD_FAV_W)]
         icons_y = SET0.bar + NP_TOP + NP_ART_Y + NP_ART - NP_ICON + NP_ICON_PAD - NP_IPOD_ROW_UP - g.bar - (NP_TOP - lift)
-    for name, x, w in (('img_playmode', fav_x - icon_w - gap, icon_w), ('img_fav', fav_x, NP_IPOD_FAV_W if g.np_ipod else icon_w)):
+    for name, (x, w) in zip(('img_playmode', 'img_fav'), row):
         buttons[3].remove(named[name])
         named[name][1] = [x, icons_y, w, NP_ICON]
     top = art_y + (text_icons_y - NP_ICON_PAD - art_y - (28 + 6 + 22 + 6 + 22 + g.np_ipod * (6 + 20))) // 2
@@ -764,7 +763,7 @@ def playing_page(root, g=SET0):
         root[3].append(named['img_more'])
         # Spotify's and Internet Radio's pages take these places (navigation.c stream_ipod), in the window
         dy = NP_TOP - lift
-        check([NP_MARGIN, dy + art_y, art, text_x, dy + title[1][1], fav_x, dy + icons_y, x, NP_IPOD_TIME_Y + (NP_IPOD_TIME_H - inc('NP_BAR_IPOD') + 1) // 2,
+        check([NP_MARGIN, dy + art_y, art, text_x, dy + title[1][1], named['img_fav'][1][0], dy + icons_y, x, NP_IPOD_TIME_Y + (NP_IPOD_TIME_H - inc('NP_BAR_IPOD') + 1) // 2,
                *(n[1][1] - title[1][1] for n in (artist, album, pos))] ==
               [inc('SPOT_ART_X'), *(inc('NP_IPOD_' + k) for k in 'ART_Y ART TEXT_X TEXT_Y FAV_X FAV_Y BAR_X BAR_Y'.split()), 34, 62, 90],
               "NP_IPOD_* != Classic's Now Playing")

@@ -1038,16 +1038,27 @@ def validate_assets(directory):
                 assert n[1][3] == value[1][3] >= px and ink(table[key].decode(), px) <= n[1][2] and value[1][0] == n[1][0] + n[1][2], (g.name, table[key])
                 assert min(n[1][0], 375 - value[1][0] - value[1][2]) >= corner_x(dy + n[1][1], n[1][3]), (g.name, table[key])
             assert len(info) == 18 and info[8][1][1] + info[8][1][3] <= page['slide_indicator1'][1][1], g.name
-            # Fork-only: the icon row's frames edge to edge, order NP_IPOD_ICON wide, centred where Minimal's would sit NP_IPOD_ROW_UP
-            # higher on the screen (AirPlay its size, beside it), favourite's NP_IPOD_FAV_W, so its glyph is Minimal's 56 px on;
-            # the dots at NP_IPOD_DOTS, under the bar's reflection, the slider over the column for touches
-            from ipod import NP_IPOD_ICON, NP_IPOD_FAV_W, NP_IPOD_ROW_UP
+            # Fork-only: the icon row's glyphs NP_IPOD_ICON_GAP apart, ink to ink, as the firmware's own bitmaps draw
+            # centred in their frames (AirPlay's, airplay.c's: order's size, as far left of it as favourite's frame is
+            # right), AirPlay's where dev74 had it, NP_IPOD_ICON left of Minimal's order's centre; the row where Minimal's
+            # would sit NP_IPOD_ROW_UP higher on the screen; the dots at NP_IPOD_DOTS, under the bar's reflection, the
+            # slider over the column for touches
+            from ipod import NP_IPOD_ICON, NP_IPOD_ICON_GAP, NP_IPOD_FAV_W, NP_IPOD_ROW_UP
             album = page['view_album'][3]
             mode, fav = [n[1] for n in album if n[2]['name'] in ('img_playmode', 'img_fav')]
             col = page['slide_view_view'][1]
-            assert mode[2] == NP_IPOD_ICON and fav[2] == NP_IPOD_FAV_W and fav[0] == mode[0] + NP_IPOD_ICON and mode[3] == fav[3] == 50, g.name
-            assert fav[0] + fav[2] // 2 - (mode[0] + mode[2] // 2) == 50 + 6 and fav[0] + fav[2] <= 375, (g.name, fav)
-            assert g.bar + col[1] + mode[1] == SET0.bar + NP_TOP + 133 - NP_IPOD_ROW_UP and mode[0] + NP_IPOD_ICON // 2 == 247 + 25, (g.name, mode)
+            assert mode[2] == NP_IPOD_ICON and fav[2] == NP_IPOD_FAV_W and mode[3] == fav[3] == 50, g.name
+            air = [2 * mode[0] - fav[0], mode[1], mode[2], mode[3]]
+            assert air[0] + air[2] // 2 == 247 + 25 - NP_IPOD_ICON and fav[0] + fav[2] <= 375, (g.name, air, fav)
+            def ink(box, image):  # the glyph's first and last inked columns on the screen, drawn centred in box
+                png = read('rootfs.squashfs', 'release/assets/default/raw/images/xx/' + image + '.png')
+                w, h = png_header(png)[:2]
+                px = imagemagick('png:-', '-depth', '8', 'rgba:-', data=png)
+                cols = [x for x in range(w) if any(px[4 * (y * w + x) + 3] > 50 for y in range(h))]
+                return box[0] + (box[2] - w) // 2 + cols[0], box[0] + (box[2] - w) // 2 + cols[-1]
+            (a0, a1), (m0, m1), (f0, f1) = ink(air, 'airplay'), ink(mode, 'play_order'), ink(fav, 'play_fav')
+            assert [m0 - a1 - 1, f0 - m1 - 1] == [NP_IPOD_ICON_GAP] * 2, (g.name, a0, a1, m0, m1, f0, f1)
+            assert g.bar + col[1] + mode[1] == SET0.bar + NP_TOP + 133 - NP_IPOD_ROW_UP, (g.name, mode)
             assert [fav[0], col[1] + fav[1]] == [inc('NP_IPOD_FAV_X'), inc('NP_IPOD_FAV_Y')], g.name
             dots = page['slide_indicator1'][1]
             assert col[1] + dots[1] == inc('NP_IPOD_DOTS') and inc('NP_IPOD_BAR_Y') + inc('NP_BAR_IPOD') + inc('SCRUB_REFLECT_ROWS') <= inc('NP_IPOD_DOTS'), g.name
