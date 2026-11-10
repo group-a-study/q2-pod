@@ -489,8 +489,9 @@ GENRE_COPY = (0x5c62dc, 0x0320f809)
 CUE_TEXT = (0x5c06d0, 0x5c0794, 0x5c084c, 0x5c0908, 0x5c0bc8, 0x5c0f84, 0x5c130c)
 # The library scan's folder walk (the unnamed recursive function toolsLoadAllFile runs, 0x5c3b64) skips
 # ".", "..", .LOST.DIR, lost+found and the like by name; its first strcmp (jalr, with "." in its delay
-# slot) becomes jal ringnav_scan_dir, which skips every hidden folder, as Folder view's list does: a card
-# app's own (q2-deezer's stream cache) never joins the Library.
+# slot) becomes jal ringnav_scan_walk, which skips every hidden folder, as Folder view's list does: a card
+# app's own (q2-deezer's stream cache) never joins the Library; and every folder holding a .nomedia file (the
+# walk's folder, in $s1, is passed on; fork-only).
 SCAN_DIRS = (0x5c3c0c, 0x0320f809)
 # toolsLoadAllFile stops a scan at 20,000 songs: lw $2,count; slti $2,$2,0x4e20 before each entry. 65,000
 # overflows slti's signed immediate, so the lw becomes jal ringnav_scan_room and the slti loads the count
@@ -1830,7 +1831,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
                    jal(ps['ringnav_cue_text']), 'CUE text read as UTF-8, GBK or Windows-1252')
     check(struct.unpack_from('<I', raw_demo, fileoff(raw_demo, SCAN_DIRS[0] + 4))[0] == 0x24a55110,
           'library scan: expected the "." exclusion')
-    patch_word(patched, *SCAN_DIRS, jal(ps['ringnav_scan_dir']), 'the library scan skips hidden folders')
+    patch_word(patched, *SCAN_DIRS, jal(ps['ringnav_scan_walk']), 'the library scan skips hidden and .nomedia folders')
     scan, load, limit, count = SCAN_LIMIT
     patch_word(patched, scan, load, jal(ps['ringnav_scan_room']), 'scan up to 65,000 songs')
     patch_word(patched, scan + 4, limit, count, 'scan up to 65,000 songs')
