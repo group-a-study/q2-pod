@@ -5917,6 +5917,71 @@ for n,gap in ((40,141),(16,100)):
     m,w,rs,es=letter_machine(False,n)
     for _ in range(6): m.call(gap=gap)
     m.paint(w,gap=0); assert not m.letters and not m.timers; passed()
+# Library letters (fork-only): a list in name order, spun on for LIST_LETTER_MS (700 ms: ticks 100 ms apart,
+# the eighth), goes by letters as Cover Flow does: each tick the next letter's first row, no sooner than
+# LIST_LETTER_PACE_MS (140 ms) after the last, the ticks between waiting; the big letter is the landing row's.
+# A virtual table reads its rows' names from the showlist record field its pooled rows show (REC_TITLE here).
+LETTER_NAMES=[f'{c}{i}' for c in 'ABCDEFGH' for i in range(5)]; LETTER_NAMES[15]='The Dears'  # sorts under D
+class LetterMachine(Machine):
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name in ('deque_at','deque_size') and getattr(self,'records',None) is not None:
+            a,b=[u.reg_read(r) for r in REGS[:2]]
+            self.calls.append((name,a,b)); self.returns(self.records[b] if name=='deque_at' else len(self.records))
+        else: super().hook(u,address,size,unused)
+def letters_machine(virtual,names=LETTER_NAMES):
+    m=LetterMachine(); n=len(names)
+    if virtual:
+        w,rs,es=m.table_page(rebind=True); m.word(w+O['TABLE_ROWS'],n)
+        m.records=[]; m.mock('deque_at','deque_size')
+        for t in names: r=m.alloc(0x60); m.word(r+O['REC_TITLE'],m.string(t)); m.word(r+O['REC_NAME'],m.string(t+'.flac')); m.records.append(r)
+        m.word(syms['p_deque_showlist'],m.alloc(0x20))
+        def rebind(a,offset):
+            m.bind(rs,offset)
+            for r,e in zip(rs,es): i=m.get(r+O['ROW_INDEX']); m.nodes[e]['text']=names[i] if i<len(names) else ''
+        m.rebind=rebind; rebind(0,0)
+    else:
+        w,es=m.page_list(n,extent=n*48,name='allmusic_page'); rs=es
+        for e,t in zip(es,names): m.nodes[e]['text']=t
+    m.paint(w,gap=0); return m,w
+def first_of(names,i,dir=1):  # the expected landing: the next letter's first row, or the one before's
+    key=lambda t: (t[4:] if t.startswith('The ') else t)[0].upper()
+    c=key(names[i]); j=i+dir
+    while 0<=j<len(names) and key(names[j])==c: j+=dir
+    if dir<0: 
+        c=key(names[j])
+        while j>0 and key(names[j-1])==c: j-=1
+    return j
+for virtual in (False,True):
+    m,w=letters_machine(virtual); sel=[]
+    for _ in range(7): assert m.call(gap=100)==11; sel.append(m.selected(w))
+    assert sel==[1,2,3,5,7,10,13],sel  # the rows' own speed-up so far, into C
+    assert m.call(gap=100)==11 and m.selected(w)==first_of(LETTER_NAMES,13)==15,(virtual,sel,m.selected(w))
+    m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['D'],m.letters  # The Dears' letter, past its article
+    assert m.call(gap=100)==11 and m.selected(w)==15; passed()  # 100 ms on: it waits for the pace
+    assert m.call(gap=100)==11 and m.selected(w)==20; passed()  # 200 ms on: E
+    assert m.call(gap=140)==11 and m.selected(w)==25; passed()  # F, at the pace itself
+    # A pause ends the run: one row again, from that letter's first.
+    assert m.call(gap=300)==11 and m.selected(w)==26; passed()
+    # Spun on the other way, the letters run back, each the letter before's first row.
+    for _ in range(7): m.call(O['KEY_PREV'],gap=100)
+    at=m.selected(w); assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==first_of(LETTER_NAMES,at,-1),(at,m.selected(w)); passed()
+    # The last letter's rows go on to the end by the rows' own steps.
+    m,w=letters_machine(virtual)
+    for _ in range(30): m.call(gap=100)
+    assert m.selected(w)==len(LETTER_NAMES)-1; passed()
+# Not in name order (Recently Added, a playlist): the rows' own speed-up, no letters.
+shuffled=[LETTER_NAMES[(7*i)%40] for i in range(40)]
+for virtual in (False,True):
+    m,w=letters_machine(virtual,shuffled); sel=[]
+    for _ in range(9): m.call(gap=100); sel.append(m.selected(w))
+    assert [b-a for a,b in zip(sel[6:],sel[7:])]==[4,4],sel; passed()
+# A table whose rows show nothing of the showlist's records (another deque's): no letters either.
+m,w=letters_machine(True)
+for r in m.records: m.word(r+O['REC_TITLE'],m.string('x')); m.word(r+O['REC_NAME'],m.string('y'))
+sel=[]
+for _ in range(9): m.call(gap=100); sel.append(m.selected(w))
+assert [b-a for a,b in zip(sel[6:],sel[7:])]==[4,4],sel; passed()
 # Stock's own scroll tick (0x5e8914), executed from the image, not mocked: it stops an unfocused
 # only_focus label at once and steps any other, which is why marq_moved clears only_focus.
 for only_focus,want,stepped in ((1,7,False),(0,None,True)):

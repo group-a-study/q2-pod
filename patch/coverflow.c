@@ -986,6 +986,7 @@ static const unsigned initial_misc[][2] = {
     { 0x1fbf0, 0x1fbf9 },
 };
 
+unsigned initial_class(unsigned c);
 /* Initial of the active alphabetic key; UTF-8 is decoded without losing non-ASCII names. */
 static unsigned initial(int i) {
     void *r = deque_at(cf.albums, (unsigned)i);
@@ -1004,6 +1005,12 @@ static unsigned initial(int i) {
             c = (c << 6) | (*p++ & 63);
         }
     }
+    return initial_class(c);
+}
+
+/* The letter code point c sorts under: A-Z upper-cased, '#' for any other ASCII and for numbers,
+ * punctuation and separators, else c itself. Shared with the lists' letters (navigation.c). */
+unsigned initial_class(unsigned c) {
     if (c >= 'a' && c <= 'z') c -= 32;
     if (c < 128) return c >= 'A' && c <= 'Z' ? c : '#';
     for (unsigned i = 0; i < sizeof initial_misc / sizeof *initial_misc; ++i)

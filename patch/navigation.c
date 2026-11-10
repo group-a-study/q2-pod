@@ -10619,6 +10619,159 @@ int search_key(unsigned key) {
     return 1;
 }
 
+/* Library letters (fork-only: upstream's lists step more rows a tick and show the big letter).
+ * A list in name order (Songs, Artists, Albums, Genres, Composers, Folder, a card app's A to Z),
+ * spun on for LIST_LETTER_MS, goes by letters as Cover Flow does: each tick takes the selection to
+ * the first row of the next letter, or turning back of the one before, no sooner than
+ * LIST_LETTER_PACE_MS after the last, so they come at a steady beat however hard the spin; the
+ * ticks between wait. paint_letter's big letter shows the row each lands on. A pause, a turn back
+ * or a slower spin ends the run (ramp), and rows go one a tick again from that letter's first.
+ * A row's letter is initial_class of its first character, past the article a library list sorts
+ * without (CTX_LOCAL, as paint_letter). A row list (kind 1) has every row's text; a virtual table
+ * (kind 2) only its pooled rows', so its records are found once a run: the showlist field whose
+ * text the pooled rows show (table_source); without one the table keeps the rows' speed-up. Name
+ * order is judged on LETTER_SAMPLES rows spread over the list: more than LETTER_DESCENTS steps back
+ * in letter order (Recently Added, a playlist, an album's tracks) and it keeps the speed-up too.
+ * ponytail: a letter of thousands of rows is walked a row at a time, as Cover Flow's are. */
+#define LIST_LETTER_MS 700
+#define LIST_LETTER_PACE_MS 140
+#define LETTER_SAMPLES 64
+#define LETTER_DESCENTS 3
+extern unsigned initial_class(unsigned c);
+static struct {
+    void *deque; /* a table's records: row i is record i - off's field */
+    unsigned at, seen; /* the last letter's time, and the last tick's in a letter run */
+    int ok, field, off;
+} ll __attribute__((section(".scratch")));
+
+static unsigned utf8_next(const unsigned char **p) {
+    unsigned c = *(*p)++;
+    if (c < 0xc2 || c > 0xf4) return c;
+    unsigned n = c < 0xe0 ? 1 : c < 0xf0 ? 2 : 3;
+    c &= (1u << (6 - n)) - 1;
+    for (unsigned j = 0; j < n; ++j) {
+        if ((**p & 0xc0) != 0x80) return 0xfffd;
+        c = (c << 6) | (*(*p)++ & 63);
+    }
+    return c;
+}
+
+/* Whether UTF-8 s reads as the wide text t. */
+static int same_text(const unsigned char *s, const unsigned *t) {
+    while (*s && *t)
+        if (utf8_next(&s) != *t++) return 0;
+    return !*s && !*t;
+}
+
+static const unsigned char *table_text(int i) {
+    void *d = ll.deque;
+    int k = i - ll.off;
+    void *r = d && k >= 0 && (unsigned)k < deque_size(d) ? deque_at(d, (unsigned)k) : (void *)0;
+    return r ? (const unsigned char *)P(r, ll.field) : (const unsigned char *)0;
+}
+
+/* The letter row i sorts under, 0 for a row without text. */
+static unsigned row_initial(menu_t *m, int i) {
+    unsigned c[8], k = 0;
+    if (m->kind == 1) {
+        int j = i < m->n && m->id[i] == i ? i : index_of(m, i); /* a row list's ids are its order */
+        const unsigned *s = j < 0 ? (const unsigned *)0 : row_id(m->at[j]).title;
+        if (!s) return 0;
+        while (*s == ' ') ++s;
+        for (; k < 7 && s[k]; ++k) c[k] = s[k];
+    } else {
+        const unsigned char *s = table_text(i);
+        if (!s) return 0;
+        while (*s == ' ') ++s;
+        while (k < 7 && *s) c[k++] = utf8_next(&s);
+    }
+    if (!k) return 0;
+    char head[8];
+    for (unsigned j = 0; j < k; ++j) head[j] = (char)(c[j] < 128 ? c[j] : 127);
+    head[k] = 0;
+    unsigned skip = m->ctx >= 0 && contexts[m->ctx].kind == CTX_LOCAL ? article(head) : 0;
+    return initial_class(c[skip < k ? skip : 0]);
+}
+
+/* A table's records: the showlist field (and row offset) whose text every pooled row with text
+ * shows but at most one (an Unknown row's own), two at least. */
+static int table_source(menu_t *m) {
+    static const unsigned short fields[] = { REC_TITLE, REC_NAME, REC_ALBUM, REC_ARTIST,
+                                             REC_ALBUM_ARTIST };
+    void *d = P(p_deque_showlist, 0);
+    unsigned n = d ? deque_size(d) : 0;
+    for (unsigned f = 0; f < sizeof fields / sizeof *fields; ++f)
+        for (int off = 0; off <= 1; ++off) {
+            int good = 0, bad = 0;
+            for (int j = 0; j < m->n && bad <= 1; ++j) {
+                const unsigned *t = row_id(m->at[j]).title;
+                int k = m->id[j] - off;
+                if (!t || !*t || k < 0 || (unsigned)k >= n) continue;
+                void *r = deque_at(d, (unsigned)k);
+                const unsigned char *s = r ? (const unsigned char *)P(r, fields[f]) : 0;
+                if (s && same_text(s, t))
+                    ++good;
+                else
+                    ++bad;
+            }
+            if (good >= 2 && bad <= 1) {
+                ll.deque = d, ll.field = fields[f], ll.off = off;
+                return 1;
+            }
+        }
+    return 0;
+}
+
+/* Whether m reads in name order: its letters step back at most LETTER_DESCENTS times over
+ * LETTER_SAMPLES rows spread across it ('#' first; ASCII's '_' after Z, accented letters after
+ * the alphabet, folders before files and an Unknown row at the end each step back once). */
+static int name_order(menu_t *m) {
+    unsigned last = 0;
+    int back = 0, seen = 0, step = m->rows > LETTER_SAMPLES ? m->rows / LETTER_SAMPLES : 1;
+    for (int i = 0; i < m->rows; i += step) {
+        unsigned c = row_initial(m, i);
+        if (!c) continue;
+        c = c == '#' ? 1 : c;
+        if (seen++ && c < last && ++back > LETTER_DESCENTS) return 0;
+        last = c;
+    }
+    return seen >= 2;
+}
+
+/* The first row of the next letter from row from, or turning back of the letter before; -1 past
+ * the list's last letter or before its first. */
+static int letter_row(menu_t *m, int from, int dir) {
+    unsigned c = row_initial(m, from);
+    int to = from + dir;
+    if (dir > 0) {
+        while (to < m->rows && row_initial(m, to) == c) ++to;
+        return to < m->rows ? to : -1;
+    }
+    while (to >= 0 && row_initial(m, to) == c) --to;
+    if (to < 0) return -1;
+    c = row_initial(m, to);
+    while (to > 0 && row_initial(m, to - 1) == c) --to;
+    return to;
+}
+
+/* A tick's letter on m from row id: the row it goes to, -1 to wait for the pace, or -2 for the
+ * rows' own step (no letters here or now). */
+static int letter_tick(menu_t *m, int id, int dir, unsigned now) {
+    if ((int)st.wheel_run - 1 < LIST_LETTER_MS || (m->kind != 1 && m->kind != 2) ||
+        (m->ctx >= 0 && contexts[m->ctx].kind == CTX_FIXED) ||
+        !tk_strcmp(widget_get_prop_str(m->w, "name", ""), "scroll_view_localmusic"))
+        return -2;
+    if (now - ll.seen > LETTER_MS) /* a new run: the list is judged again */
+        ll.ok = (m->kind == 1 || table_source(m)) && name_order(m) ? 1 : -1;
+    ll.seen = now;
+    if (ll.ok < 0) return -2;
+    if (now - ll.at < LIST_LETTER_PACE_MS) return -1;
+    int to = letter_row(m, id, dir);
+    if (to < 0) return -2; /* the last letter: rows on to the end */
+    ll.at = now;
+    return to;
+}
+
 int ringnav(void *ctx, void *event) {
     pull_cancel();
     /* The stock filter dereferences the event before returning. */
@@ -10869,6 +11022,9 @@ int ringnav(void *ctx, void *event) {
         if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
         int next = clamp_step(id < 0 ? (cur >= 0 ? g_menu.id[cur] : 0) : id, g_menu.rows - 1,
                               id < 0 ? 0 : dir * step);
+        int jump = id >= 0 && step > 1 ? letter_tick(&g_menu, id, dir, now) : -2;
+        if (jump == -1) return STOP; /* between letters: the tick waits for the pace */
+        if (jump >= 0) next = jump;
         if (next == 0 || next == g_menu.rows - 1) drop_wheel();
         if (next == id) {
             int home = home_menu(top) && g_menu.rows >= 2;
