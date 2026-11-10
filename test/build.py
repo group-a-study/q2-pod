@@ -463,6 +463,17 @@ def validate_assets(directory):
     from build import BOLD_TTF, CLASSIC_LIGHT_TTF, CLASSIC_LIGHT_NOTICE, FONT_NOTICES, bold_font, subset_font
     assert read('rootfs.squashfs', BOLD_TTF) == bold_font()[0]
     assert read('rootfs.squashfs', CLASSIC_LIGHT_TTF) == subset_font(ROOT/'assets/fonts/texgyreheros-bold.otf', 'Q2 Pod Classic Light', 'CLASSIC_LIGHT_RANGES', CLASSIC_LIGHT_NOTICE)[0]
+    # The lyrics face (LYRIC_FONT, fork-only): Inter Display ExtraBold as assets/fonts holds it, its copyright and
+    # OFL notice in its name table, holding every character patch/lyrics.c's ly_inter draws in it.
+    from build import LYRIC_FONT
+    from fontTools.ttLib import TTFont
+    lyric = TTFont(io.BytesIO((ROOT/'assets/fonts/lyric.ttf').read_bytes()))
+    names = {r.nameID: r.toUnicode() for r in lyric['name'].names if r.langID == 0x409}
+    assert names[4] == 'Inter Display ExtraBold' and 'Inter Project Authors' in names[0] and 'Open Font License' in names[13]
+    inter = [*range(0x20, 0x7f), *(c for c in range(0xa0, 0x180) if c not in (0xad, 0x149)), 0x2013, 0x2014,
+             *range(0x2018, 0x201f), 0x2022, 0x2026, 0x2032, 0x2033]
+    assert all(c in lyric.getBestCmap() for c in inter)
+    assert read('rootfs.squashfs', LYRIC_FONT) == (ROOT/'assets/fonts/lyric.ttf').read_bytes()
     for name in FONT_NOTICES:
         assert read('rootfs.squashfs', 'release/assets/default/raw/fonts/' + name) == (ROOT/'assets/fonts'/name).read_bytes()
     # Centred Now Playing's page is English, as the iPod page is (english_ui)
