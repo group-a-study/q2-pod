@@ -393,8 +393,7 @@ def slot_width(ui, bar):
     return ui.box(bar.slot)[2]
 
 
-# the percentage alone BATT_PCT_LEAD further from Wi-Fi (fork-only)
-@pytest.mark.parametrize('mode, width', [(0, BODY_W + NUB_W), (1, O['BATT_PCT_LEAD'] + PCT_W), (2, BODY_W + NUB_W + GAP + PCT_W),
+@pytest.mark.parametrize('mode, width', [(0, BODY_W + NUB_W), (1, PCT_W), (2, BODY_W + NUB_W + GAP + PCT_W),
                                          (3, INSIDE_W + NUB_W)])
 def test_the_slot_is_its_modes_ink_wide_and_the_bars_height(fw, st, ui, mode, width):
     theme(fw, st, BATTERY=mode)
@@ -543,8 +542,7 @@ def test_percent_alone_is_the_level_and_a_percent_sign_centred_in_the_slot(fw, s
     bar = Bar(fw, ui)
     canvas = Paint(fw, ui, bar)()
     (text, rect, (face, px), color, _), = canvas.texts
-    lead, (w, h) = O['BATT_PCT_LEAD'], ui.box(bar.slot)[2:]  # its room from Wi-Fi first (fork-only)
-    assert (text, rect, px, color) == ('88%', (lead, 0, w - lead, h), O['BATT_PX'], 0xffffffff)
+    assert (text, rect, px, color) == ('88%', (0, 0, *ui.box(bar.slot)[2:]), O['BATT_PX'], 0xffffffff)
     assert canvas.rects == []
 
 
@@ -566,8 +564,7 @@ def test_the_first_paint_measures_the_digits_and_the_slot_fits_them(fw, st, ui):
     for text in ('5%', '88%', '100%'):
         paint(text)
         widths[text] = slot_width(ui, bar)
-    lead = O['BATT_PCT_LEAD']  # its room from Wi-Fi (fork-only)
-    assert widths == {'5%': lead + digit + sign, '88%': lead + 2 * digit + sign, '100%': lead + 3 * digit + sign}
+    assert widths == {'5%': digit + sign, '88%': 2 * digit + sign, '100%': 3 * digit + sign}
 
 
 def icon_parts(canvas, level_h):

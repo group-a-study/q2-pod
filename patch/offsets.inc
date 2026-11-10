@@ -205,8 +205,6 @@ static inline int arc_out(int r, int y) {
 #define CLOCK_EDGE 57
 #define STATUS_GAP 4
 #define BATT_PCT_W 42
-/* Fork-only: the percentage alone (Battery: Percent) this much further from Wi-Fi than STATUS_GAP, Minimal's bar */
-#define BATT_PCT_LEAD 3
 #define BATT_PCT_PX 16
 #define BATT_BODY_W 16
 #define BATT_BODY_H 11
