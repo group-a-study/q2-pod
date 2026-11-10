@@ -166,8 +166,7 @@
     <element name="inplace" ms="120" easing="cubic_out"/>
     <element name="step" ms="200" easing="sin_inout"/>
     <element name="step_fast" ms="120" easing="sin_inout"/>
-    <element name="coverflow_step" ms="81" easing="follow"/>
-    <element name="coverflow_step_fast" ms="81" easing="follow"/>
+    <!-- Fork-only: Cover Flow's step is Minimal's (HOME_SLIDE_MS), the wheel a tick a cover, as before 1.6.6 -->
     <element name="recall" ms="0"/>
     <element name="bump" px="0"/>
   </view>

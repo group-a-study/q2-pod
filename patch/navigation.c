@@ -539,7 +539,16 @@ static int home_done(void *w, void *event) {
 
 static void *surface(void *target, void **other);
 
+/* Cover Flow's letters under a finger still on the wheel (fork-only, an iPod classic's): once a
+ * spin's ticks go by letters (home_step), every tick is a letter, either way and at any pace, and
+ * the big letter stays up until the finger lifts. */
+static int cf_held __attribute__((section(".scratch")));
+static int cf_letters_held(void) {
+    if (cf_held && !wheel_held) cf_held = 0;
+    return cf_held;
+}
 static int cf_letter_expire(const void *info) {
+    if (cf_letters_held()) return 8; /* RET_REPEAT: the letter stays under the finger */
     st.cf_letter_timer = st.cf_letter = 0;
     void *w = surface(0, 0);
     if (w && w == st.cf_letter_surface) widget_invalidate_force(w, 0);
@@ -621,6 +630,7 @@ static void home_step(void *w, int dir, unsigned now, int jump) {
     int from = (I(w, SLIDE_INDEX) - goal / stride - dir) % n;
     if (from < 0) from += n;
     int steps = jump ? coverflow_jump(w, from, dir, &letter) : 1;
+    if (jump) cf_held = letter && wheel_held;
     goal -= dir * stride * (steps - 1);
     int to = I(w, SLIDE_INDEX) - goal / stride;
     if (coverflow_bounded(w) && (to < 0 || to >= n)) {
@@ -2665,7 +2675,8 @@ int ringnav_paint(void *w, void *canvas) {
     coverflow_paint(w, canvas);
     lockscreen_paint(w, canvas);
     if (w == st.cf_letter_surface && st.cf_letter &&
-        (unsigned)time_now_ms() - st.cf_letter_at < LETTER_MS && P(canvas, CANVAS_LCD)) {
+        ((unsigned)time_now_ms() - st.cf_letter_at < LETTER_MS || cf_letters_held()) &&
+        P(canvas, CANVAS_LCD)) {
         unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
         rect_t box = { (I(w, W_W) - LETTER_BOX) / 2, (I(w, W_H) - LETTER_BOX) / 2, LETTER_BOX,
                        LETTER_BOX };
@@ -11050,7 +11061,7 @@ int ringnav(void *ctx, void *event) {
         if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
         int next = clamp_step(id < 0 ? (cur >= 0 ? g_menu.id[cur] : 0) : id, g_menu.rows - 1,
                               id < 0 ? 0 : dir * step);
-        int jump = id >= 0 && step > 1 ? letter_tick(&g_menu, id, dir, now) : -2;
+        int jump = id >= 0 && (step > 1 || ll.on) ? letter_tick(&g_menu, id, dir, now) : -2;
         if (jump == -1) return STOP; /* between letters: the tick waits for the pace */
         if (jump >= 0) next = jump;
         if (next == 0 || next == g_menu.rows - 1) drop_wheel();

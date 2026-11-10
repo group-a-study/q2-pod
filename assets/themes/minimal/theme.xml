@@ -32,8 +32,10 @@
        jump_ms at jump_at ticks/s or more (32: a steady turn a second at 50% Wheel Sensitivity clears it; time under it comes off the count),
        a spin goes by letters, the covers flowing on as any fast turn's, one letter each jump_ticks of travel (jump_ticks 0:
        never) and jump_pace ms apart at least, until a turn back, the rate under fast_at or no tick while a letter shows. -->
+  <!-- Fork-only: thumb="0", the wheel steps the covers a tick at a time, as before 1.6.9 (the user's choice); the numbers
+       below are kept for thumb="1". -->
   <view name="coverflow">
-    <element name="shelf" thumb="1" ticks_turn="36" ticks_album="7" fast_at="23" fast_full="90" top_speed="20" track="30"
+    <element name="shelf" thumb="0" ticks_turn="36" ticks_album="7" fast_at="23" fast_full="90" top_speed="20" track="30"
              snap="25" spin="130" far_left="250" detent="80" hold_ms="5000" stop_ms="60" stop_left="60" rate_up="120"
              rate_down="50" back="50" dead="1" contact_ms="40" aim_snap="30" lead_from="25" lead_full="100" lead_ms="45"
              row_shift="20" row_from="100" row_full="300" row_shrink="8" row_flat="200" row_out="33" row_edge="160"

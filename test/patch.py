@@ -6188,7 +6188,7 @@ class CoverflowMachine(QueueMachine):
         self.returns(ret,clobber=True)
     def open(self):
         """Home with the card at index 2: centre confirms its image, whose click opens Coverflow."""
-        if self.config.get('THEME')=='1': self.slide_easing=0  # Classic's follow is set after the create, which takes linear
+        # fork-only: Classic's step is Minimal's (classic_follow sets upstream's follow, whose create takes linear)
         view,self.imgs=home_list(self); self.img=self.imgs[2]; self.home=self.top; self.stack=[self.top]
         self.art=named(self,self.top,'img_homeart'); self.list=named(self,self.top,'list_view_home')
         assert self.call(address=home_hook[0],args=(self.top,0,0,0),gap=0)==0
@@ -8815,6 +8815,8 @@ m.word(m.albums[1]+O['REC_ID'],0xffffffff); m.open(); assert cf_jump(m,0,1)==(1,
 m=CoverflowMachine(albums=3); m.open(); step_ticks(m,m.slide,(0,200,8),(50,120,8))
 set_motion(m,'coverflow_step',250,2); set_motion(m,'coverflow_step_fast',170,4); set_motion(m,'step',90,1)
 step_ticks(m,m.slide,(500,250,2),(50,170,4)); passed()
+def classic_follow(m):  # fork-only: Classic's theme takes Minimal's step; a follow theme's motion, set as upstream's Classic has it
+    set_motion(m,'coverflow_step',81,O['EASE_FOLLOW']); set_motion(m,'coverflow_step_fast',81,O['EASE_FOLLOW']); m.slide_easing=0
 # Classic's step is a follow of the goal, its ms the time constant. The easing is what stock's animator calls
 # (widget_animator_time_elapse: k in $f12, the share back in $f0). A tick moves the goal, carries the speed, and
 # the run still ends through home_done on ANIM_X_TO.
@@ -8829,7 +8831,7 @@ def follow_to(m,w,ms):  # the animator ms into its run, the offset as stock's up
 def follow_speed(m,w,ms):  # px a ms, at ms into the run
     a,origin,goal,T=slide(m,w)
     return (goal-origin)*(follow_share(m,(ms+1)/T)-follow_share(m,ms/T))
-m=classic_light_new(CoverflowMachine,albums=9); m.open(); w=m.slide; index=m.get(w+O['SLIDE_INDEX'])
+m=classic_light_new(CoverflowMachine,albums=9); m.open(); classic_follow(m); w=m.slide; index=m.get(w+O['SLIDE_INDEX'])
 assert m.call(gap=1000)==11
 a,origin,goal,T=slide(m,w); stride=-goal
 assert origin==0 and stride>0 and m.get(a+O['ANIM_EASING'])==payload_syms['coverflow_follow']
@@ -8845,7 +8847,7 @@ m.advance(T2); assert not m.slides and m.get(w+O['SLIDE_ANIMATOR'])==0 and m.get
 assert m.get(w+O['SLIDE_INDEX'])==(index+2)%9; passed()
 # A tick on a touch's glide starts the follow from rest: that speed isn't the follow's to read. The glide itself
 # keeps its own easing; a ms of 0 stays the immediate move.
-m=classic_light_new(CoverflowMachine,albums=9); m.open(); w=m.slide
+m=classic_light_new(CoverflowMachine,albums=9); m.open(); classic_follow(m); w=m.slide
 cubic=m.call(address=syms['easing_get'],args=(O['EASE_CUBIC_OUT'],0,0,0),gap=0)
 assert m.call(gap=1000)==11; a=m.get(w+O['SLIDE_ANIMATOR'])
 assert m.call(address=payload_syms['carousel_glide'],args=(w,0,300,O['EASE_CUBIC_OUT']),gap=0)==1 and m.get(a+O['ANIM_EASING'])==cubic and m.get(a+O['ANIM_DURATION'])==300
@@ -10314,121 +10316,159 @@ def toff(m): return signed(m.get(m.slide+O['SLIDE_OFFSET']))
 def tcaption(m): return m.texts()[0]
 CF_FIELDS=[f for l in re.findall(r'^\s*short ([^;]+);',re.search(r'typedef struct \{([^}]*)\} cf_style_t;',(ROOT/'patch/theme.h').read_text())[1],re.M) for f in re.split(r',\s*',l)]
 def no_letters(m): m.u.mem_write(ps['cfs']+2*CF_FIELDS.index('jump_ticks'),b'\0\0')  # the open page's cfs: jump_ticks 0, the cap alone
-# Raw on the covers, each pass, in every theme; a turn writes the offset itself and no tick or animator is about.
-# The whole wider ring is allocated at the open.
-for theme in ('1','0','2'):
-    SETUP[:]=[lambda k:(k.config.update(THEME=theme),k)]
-    try: m=DepthMachine(albums=9)
-    finally: SETUP.clear()
+# Fork-only: the themes' shelf has thumb="0" (the user's choice, Cover Flow's wheel a tick a cover as before 1.6.9):
+# the thumb's checks run only with a theme's thumb on.
+THUMB_ON=re.search(r'<element name="shelf" thumb="(\d)"',(ROOT/'assets/themes/minimal/theme.xml').read_text()).group(1)=='1'
+if THUMB_ON:
+    # Raw on the covers, each pass, in every theme; a turn writes the offset itself and no tick or animator is about.
+    # The whole wider ring is allocated at the open.
+    for theme in ('1','0','2'):
+        SETUP[:]=[lambda k:(k.config.update(THEME=theme),k)]
+        try: m=DepthMachine(albums=9)
+        finally: SETUP.clear()
+        m.open(); m.handlers[sleep_hook+12]='stock_sleep'; m.fresh=1
+        tp(m); assert traw(m)==2 and not m.slides,theme
+        assert (15+1)*160*160*4 in m.live.values(),theme
+        thold(m); tp(m,-30); assert toff(m)<0 and not m.slides and m.get(m.slide+O['SLIDE_ANIMATOR'])==0 and not m.get(ps['wheel_travel']),theme
+        trest(m); assert toff(m)==0,theme; passed()
+    # wheel_raw never stays set: each way off the covers gives the wheel back at the next pass, the travel gone, the
+    # covers landed on what was shown (a finger on the screen lets them run down), and coming back takes it again.
+    def to_other(m): m.top=m.node('window','home_page')
+    def to_dialog(m): m.top=m.node('dialog','msginfo_dialog')
+    def to_np(m): m.top=m.node('window','playing_page')
+    def thumb_exits():
+        def flag(name,on,off): return (lambda m:m.byte(syms[name],on),lambda m:m.byte(syms[name],off))
+        back=lambda m: setattr(m,'top',m.page)
+        yield 'window',to_other,back; yield 'dialog',to_dialog,back; yield 'now playing',to_np,back
+        yield ('dark',)+flag('g_backlight_status',0,1); yield ('locked',)+flag('g_lockscreen_pageflag',1,0)
+        yield ('usb',)+flag('g_usblink_status',2,0); yield ('power',)+flag('g_poweroff_state',2,0); yield ('test',)+flag('g_testmode_flag',1,0)
+        yield 'sliding',(lambda m:setattr(m,'animating',1)),(lambda m:setattr(m,'animating',0))
+        yield 'finger',(lambda m:setattr(m,'pressed',1)),(lambda m:setattr(m,'pressed',0))
+    for name,off,on in thumb_exits():
+        m=thumb_page(); m.scheduling=0; tp(m); assert traw(m)==2,name
+        thold(m); tspin(m,300,-30); assert toff(m)<0,name; m.word(ps['wheel_travel'],-99&0xffffffff)
+        off(m); tp(m); assert traw(m)==0 and not m.get(ps['wheel_travel']),name
+        if name=='finger':
+            for _ in range(150): tp(m)
+        assert toff(m)==0 and m.get(m.slide+O['SLIDE_ANIMATOR'])==0,name
+        index=tindex(m); m.word(ps['wheel_travel'],-99&0xffffffff); tp(m); assert toff(m)==0 and traw(m)==0 and tindex(m)==index,name
+        on(m); tp(m); assert traw(m)==2 and not m.get(ps['wheel_travel']) and tindex(m)==index,name; passed()
+    # Closing the page, Return's way: the wheel's back with it; the album named is the one kept.
+    m=thumb_page(); tp(m); thold(m); tspin(m,300,-30); shown=tcaption(m); m.close(); m.slide=0; to_other(m); tp(m); assert traw(m)==0
+    tp(m); assert m.get(ps['wheel_raw'])==0; passed()
+    # Whoever owns the wheel next keeps it: Vortex's and a card game's flag, left alone once the covers are gone...
+    m=thumb_page(); tp(m); to_other(m); tp(m); assert traw(m)==0; m.word(ps['wheel_raw'],1)
+    for _ in range(5): tp(m)
+    assert traw(m)==1; m.word(ps['wheel_raw'],0); passed()
+    # ... and Now Playing's lyrics, in the same pass, either way round, each writing what it decides.
+    m=thumb_page(); tp(m); assert traw(m)==2; page=m.page
+    m.handlers[playing+12]='stock_playing'; scrub_page(m=m); m.lyric_size=9; m.fail_calloc=True
+    rows=[m.node('label') for _ in ROWS]
+    for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
+    m.lrc=m.node('scroll_view','scroll_lrc',rows); m.word(m.lrc+O['W_H'],178); m.word(m.lrc+O['VIEW_CONTENT_H'],sum(ROWS))
+    m.np=m.node('slide_view','slide_view',[m.lrc],value=1); m.nodes[m.win]['children'].append(m.np)
+    assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0
+    tp(m); assert traw(m)==1,traw(m)  # the lyrics'
+    for _ in range(3): tp(m)
+    assert traw(m)==1
+    m.top=page; tp(m); tp(m); assert traw(m)==2  # back, past the pass where lyric_poll lets go
+    for _ in range(3): tp(m)
+    assert traw(m)==2; m.top=m.win; tp(m); assert traw(m)==1; passed()
+    # Stock's lockout after Centre or Return keeps its first two tenths, as ringnav does for ticks; Return's stop;
+    # no frame in WHEEL_FRESH_MS: their travel moves nothing, and is gone.
+    for gate,clear in ((lambda m:m.byte(O['KEY_LOCKOUT'],8),lambda m:m.byte(O['KEY_LOCKOUT'],8-O['LOCKOUT_KEEP'])),
+                       (lambda m:m.word(ps['wheel_mute'],1),lambda m:m.word(ps['wheel_mute'],0)),
+                       (lambda m:setattr(m,'fresh',0) or m.word(ps['wheel_frame_at'],m.now-O['WHEEL_FRESH_MS']),lambda m:setattr(m,'fresh',1))):
+        m=thumb_page(); tp(m); thold(m); gate(m); tp(m,-50); assert toff(m)==0 and not m.get(ps['wheel_travel']) and traw(m)==2
+        clear(m); tp(m,-50); tp(m); assert toff(m)<0; passed()  # a pass on: one pass's burst is held to the cap
+    # A turn times the idle loop and the screen itself, and clicks once an album; the thumb holding still doesn't keep
+    # the screen on.
+    m=thumb_page(); tp(m); thold(m); m.calls=[]
+    for _ in range(20*3): tp(m,-2,ms=60)
+    assert len(did(m,'reset_poweroptions_timer'))>=20*3-2 and len(did(m,'buzzeer_switch'))==3
+    m.calls=[]
+    for _ in range(10): tp(m)
+    assert not did(m,'reset_poweroptions_timer') and not did(m,'buzzeer_switch'); passed()
+    # At jump_at for jump_ms a spin goes by letters, as Minimal's wheel does: the covers flow on and each names the next
+    # letter's first album, its letter shown, jump_pace apart. Once in, a turn from fast_at keeps them, one each
+    # jump_ticks; slowing under fast_at gives albums back under the thumb, and a lift lands on the letter's first album.
+    def letter_on(m): return any(v[1]==ps['cf_letter_expire'] for v in m.timers.values())
+    FRUIT=('Apple','Avocado','Banana','Blueberry','Cherry','Date','Elder','Fig','Grape')
+    m=classic_light_new(DepthMachine,albums=9)
+    for r,name in zip(m.albums,FRUIT): m.word(r+O['REC_ALBUM'],m.string(name))
     m.open(); m.handlers[sleep_hook+12]='stock_sleep'; m.fresh=1
-    tp(m); assert traw(m)==2 and not m.slides,theme
-    assert (15+1)*160*160*4 in m.live.values(),theme
-    thold(m); tp(m,-30); assert toff(m)<0 and not m.slides and m.get(m.slide+O['SLIDE_ANIMATOR'])==0 and not m.get(ps['wheel_travel']),theme
-    trest(m); assert toff(m)==0,theme; passed()
-# wheel_raw never stays set: each way off the covers gives the wheel back at the next pass, the travel gone, the
-# covers landed on what was shown (a finger on the screen lets them run down), and coming back takes it again.
-def to_other(m): m.top=m.node('window','home_page')
-def to_dialog(m): m.top=m.node('dialog','msginfo_dialog')
-def to_np(m): m.top=m.node('window','playing_page')
-def thumb_exits():
-    def flag(name,on,off): return (lambda m:m.byte(syms[name],on),lambda m:m.byte(syms[name],off))
-    back=lambda m: setattr(m,'top',m.page)
-    yield 'window',to_other,back; yield 'dialog',to_dialog,back; yield 'now playing',to_np,back
-    yield ('dark',)+flag('g_backlight_status',0,1); yield ('locked',)+flag('g_lockscreen_pageflag',1,0)
-    yield ('usb',)+flag('g_usblink_status',2,0); yield ('power',)+flag('g_poweroff_state',2,0); yield ('test',)+flag('g_testmode_flag',1,0)
-    yield 'sliding',(lambda m:setattr(m,'animating',1)),(lambda m:setattr(m,'animating',0))
-    yield 'finger',(lambda m:setattr(m,'pressed',1)),(lambda m:setattr(m,'pressed',0))
-for name,off,on in thumb_exits():
-    m=thumb_page(); m.scheduling=0; tp(m); assert traw(m)==2,name
-    thold(m); tspin(m,300,-30); assert toff(m)<0,name; m.word(ps['wheel_travel'],-99&0xffffffff)
-    off(m); tp(m); assert traw(m)==0 and not m.get(ps['wheel_travel']),name
-    if name=='finger':
-        for _ in range(150): tp(m)
-    assert toff(m)==0 and m.get(m.slide+O['SLIDE_ANIMATOR'])==0,name
-    index=tindex(m); m.word(ps['wheel_travel'],-99&0xffffffff); tp(m); assert toff(m)==0 and traw(m)==0 and tindex(m)==index,name
-    on(m); tp(m); assert traw(m)==2 and not m.get(ps['wheel_travel']) and tindex(m)==index,name; passed()
-# Closing the page, Return's way: the wheel's back with it; the album named is the one kept.
-m=thumb_page(); tp(m); thold(m); tspin(m,300,-30); shown=tcaption(m); m.close(); m.slide=0; to_other(m); tp(m); assert traw(m)==0
-tp(m); assert m.get(ps['wheel_raw'])==0; passed()
-# Whoever owns the wheel next keeps it: Vortex's and a card game's flag, left alone once the covers are gone...
-m=thumb_page(); tp(m); to_other(m); tp(m); assert traw(m)==0; m.word(ps['wheel_raw'],1)
-for _ in range(5): tp(m)
-assert traw(m)==1; m.word(ps['wheel_raw'],0); passed()
-# ... and Now Playing's lyrics, in the same pass, either way round, each writing what it decides.
-m=thumb_page(); tp(m); assert traw(m)==2; page=m.page
-m.handlers[playing+12]='stock_playing'; scrub_page(m=m); m.lyric_size=9; m.fail_calloc=True
-rows=[m.node('label') for _ in ROWS]
-for i,r in enumerate(rows): m.word(r+O['W_Y'],sum(ROWS[:i])); m.word(r+O['W_H'],ROWS[i])
-m.lrc=m.node('scroll_view','scroll_lrc',rows); m.word(m.lrc+O['W_H'],178); m.word(m.lrc+O['VIEW_CONTENT_H'],sum(ROWS))
-m.np=m.node('slide_view','slide_view',[m.lrc],value=1); m.nodes[m.win]['children'].append(m.np)
-assert m.call(address=playing,args=(m.win,7,0,0),gap=0)==0
-tp(m); assert traw(m)==1,traw(m)  # the lyrics'
-for _ in range(3): tp(m)
-assert traw(m)==1
-m.top=page; tp(m); tp(m); assert traw(m)==2  # back, past the pass where lyric_poll lets go
-for _ in range(3): tp(m)
-assert traw(m)==2; m.top=m.win; tp(m); assert traw(m)==1; passed()
-# Stock's lockout after Centre or Return keeps its first two tenths, as ringnav does for ticks; Return's stop;
-# no frame in WHEEL_FRESH_MS: their travel moves nothing, and is gone.
-for gate,clear in ((lambda m:m.byte(O['KEY_LOCKOUT'],8),lambda m:m.byte(O['KEY_LOCKOUT'],8-O['LOCKOUT_KEEP'])),
-                   (lambda m:m.word(ps['wheel_mute'],1),lambda m:m.word(ps['wheel_mute'],0)),
-                   (lambda m:setattr(m,'fresh',0) or m.word(ps['wheel_frame_at'],m.now-O['WHEEL_FRESH_MS']),lambda m:setattr(m,'fresh',1))):
-    m=thumb_page(); tp(m); thold(m); gate(m); tp(m,-50); assert toff(m)==0 and not m.get(ps['wheel_travel']) and traw(m)==2
-    clear(m); tp(m,-50); tp(m); assert toff(m)<0; passed()  # a pass on: one pass's burst is held to the cap
-# A turn times the idle loop and the screen itself, and clicks once an album; the thumb holding still doesn't keep
-# the screen on.
-m=thumb_page(); tp(m); thold(m); m.calls=[]
-for _ in range(20*3): tp(m,-2,ms=60)
-assert len(did(m,'reset_poweroptions_timer'))>=20*3-2 and len(did(m,'buzzeer_switch'))==3
-m.calls=[]
-for _ in range(10): tp(m)
-assert not did(m,'reset_poweroptions_timer') and not did(m,'buzzeer_switch'); passed()
-# At jump_at for jump_ms a spin goes by letters, as Minimal's wheel does: the covers flow on and each names the next
-# letter's first album, its letter shown, jump_pace apart. Once in, a turn from fast_at keeps them, one each
-# jump_ticks; slowing under fast_at gives albums back under the thumb, and a lift lands on the letter's first album.
-def letter_on(m): return any(v[1]==ps['cf_letter_expire'] for v in m.timers.values())
-FRUIT=('Apple','Avocado','Banana','Blueberry','Cherry','Date','Elder','Fig','Grape')
-m=classic_light_new(DepthMachine,albums=9)
-for r,name in zip(m.albums,FRUIT): m.word(r+O['REC_ALBUM'],m.string(name))
-m.open(); m.handlers[sleep_hook+12]='stock_sleep'; m.fresh=1
-tp(m); thold(m); tspin(m,300,-30); assert not letter_on(m)  # 318 ticks/s; at the cap, short of jump_ms
-seen={tcaption(m)}; m.calls=[]
-for _ in range(50): tspin(m,17,-30); seen.add(tcaption(m))
-assert letter_on(m) and len({c[0] for c in seen})>=4 and did(m,'buzzeer_switch')
-seen={tcaption(m)}
-for _ in range(40): tspin(m,17,-4); seen.add(tcaption(m))  # 42 ticks/s: a letter a beat, 9 passes or so
-assert letter_on(m) and len({c[0] for c in seen})>=2
-tspin(m,100,-1); index=tindex(m); tspin(m,500,-1)  # 11 ticks/s
-assert tindex(m)!=index or toff(m)!=0
-trest(m); assert toff(m)==0 and tcaption(m)==FRUIT[tindex(m)]; passed()
-# chord_gate: Centre under a held Return is dropped whole while the wheel's raw, the covers not landed for it.
-def twake(m,kind,key=O['KEY_CENTER'],gap=30):
-    inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'; n=len(m.calls)
-    assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=gap,clear=False,debounce=True)==0
-    return any(c[0]=='stock_input' for c in m.calls[n:])
-m=thumb_page(); tp(m); thold(m); tspin(m,300,-30); off=toff(m)
-assert twake(m,O['EVT_KEY_DOWN'],O['KEY_RETURN']) and not twake(m,O['EVT_KEY_DOWN']) and toff(m)==off and m.top==m.page; passed()
-# hold_wheel: ticks while the page slides in wait, raw off, and play in as a step; the turn going on takes over from
-# that step, its goal kept. A tick the queue still held as the wheel went raw goes nowhere.
-m=thumb_page(); m.animating=1; tp(m); assert traw(m)==0 and m.call(gap=100)==11 and m.call(gap=20)==11 and not m.slides and toff(m)==0
-m.animating=0; m.advance(40); a=m.get(m.slide+O['SLIDE_ANIMATOR']); assert a and signed(m.get(a+O['ANIM_X_TO']))<0
-tp(m,ms=1); assert traw(m)==2 and m.get(m.slide+O['SLIDE_ANIMATOR'])==a
-held=signed(m.get(a+O['ANIM_X_TO'])); thold(m)
-m.u.mem_write(m.slide+O['SLIDE_OFFSET'],struct.pack('<i',-20)); tp(m,-10)
-assert m.get(m.slide+O['SLIDE_ANIMATOR'])==0 and did(m,'widget_animator_destroy') and -held//O['CF_STRIDE']>=0 and not m.slides
-off=toff(m); assert m.call(gap=0)==11 and m.get(m.slide+O['SLIDE_ANIMATOR'])==0 and toff(m)==off
-trest(m); assert toff(m)==0; passed()
-# The row's cost, in instructions: at a full lead, under a mid-turn frame's. What a frame costs on the device is measured
-# with the --dev gaps; this keeps a change from quietly doubling it.
-def tpaint(m): m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slide,m.canvas,0,0),gap=0,clear=False,count=50_000_000,debounce=True)
-m=thumb_page(); n=[0]; h=m.u.hook_add(UC_HOOK_BLOCK,lambda u,a,size,x: n.__setitem__(0,n[0]+size//4),begin=BASE,end=SCRATCH-1)
-tp(m); tpaint(m); assert m.draws; m.word(m.slide+O['SLIDE_OFFSET'],-O['CF_STRIDE']//4); n[0]=0
-tpaint(m); turn_cost=n[0]; m.word(m.slide+O['SLIDE_OFFSET'],0); thold(m); no_letters(m); tspin(m,600,-110); assert struct.unpack('<f',m.u.mem_read(ps['th']+12,4))[0]>4  # a full lead
-n[0]=0; draws=len(m.draws); tpaint(m); row_cost=n[0]; m.u.hook_del(h); assert len(m.draws)==draws+1 and turn_cost>1000000 and row_cost<turn_cost; passed()
-# Centre opens the album the caption names, at once, however far ahead of the covers that is (letters off).
-m=thumb_page(); tp(m); thold(m); no_letters(m); tspin(m,600,-110); shown=tcaption(m); assert toff(m)!=0
-assert m.confirm()==11 and toff(m)==0 and tcaption(m)==shown
-index=tindex(m); assert m.dispatched()[-1][1]==m.nodes[m.slide]['children'][index] and shown==f'Album {index}'; passed()
+    tp(m); thold(m); tspin(m,300,-30); assert not letter_on(m)  # 318 ticks/s; at the cap, short of jump_ms
+    seen={tcaption(m)}; m.calls=[]
+    for _ in range(50): tspin(m,17,-30); seen.add(tcaption(m))
+    assert letter_on(m) and len({c[0] for c in seen})>=4 and did(m,'buzzeer_switch')
+    seen={tcaption(m)}
+    for _ in range(40): tspin(m,17,-4); seen.add(tcaption(m))  # 42 ticks/s: a letter a beat, 9 passes or so
+    assert letter_on(m) and len({c[0] for c in seen})>=2
+    tspin(m,100,-1); index=tindex(m); tspin(m,500,-1)  # 11 ticks/s
+    assert tindex(m)!=index or toff(m)!=0
+    trest(m); assert toff(m)==0 and tcaption(m)==FRUIT[tindex(m)]; passed()
+    # chord_gate: Centre under a held Return is dropped whole while the wheel's raw, the covers not landed for it.
+    def twake(m,kind,key=O['KEY_CENTER'],gap=30):
+        inp=HOOKS['window_manager_dispatch_input_event'][0]; m.handlers[inp+12]='stock_input'; n=len(m.calls)
+        assert m.call(key,address=inp,args=(m.wm,m.event,0,0),event_type=kind,gap=gap,clear=False,debounce=True)==0
+        return any(c[0]=='stock_input' for c in m.calls[n:])
+    m=thumb_page(); tp(m); thold(m); tspin(m,300,-30); off=toff(m)
+    assert twake(m,O['EVT_KEY_DOWN'],O['KEY_RETURN']) and not twake(m,O['EVT_KEY_DOWN']) and toff(m)==off and m.top==m.page; passed()
+    # hold_wheel: ticks while the page slides in wait, raw off, and play in as a step; the turn going on takes over from
+    # that step, its goal kept. A tick the queue still held as the wheel went raw goes nowhere.
+    m=thumb_page(); m.animating=1; tp(m); assert traw(m)==0 and m.call(gap=100)==11 and m.call(gap=20)==11 and not m.slides and toff(m)==0
+    m.animating=0; m.advance(40); a=m.get(m.slide+O['SLIDE_ANIMATOR']); assert a and signed(m.get(a+O['ANIM_X_TO']))<0
+    tp(m,ms=1); assert traw(m)==2 and m.get(m.slide+O['SLIDE_ANIMATOR'])==a
+    held=signed(m.get(a+O['ANIM_X_TO'])); thold(m)
+    m.u.mem_write(m.slide+O['SLIDE_OFFSET'],struct.pack('<i',-20)); tp(m,-10)
+    assert m.get(m.slide+O['SLIDE_ANIMATOR'])==0 and did(m,'widget_animator_destroy') and -held//O['CF_STRIDE']>=0 and not m.slides
+    off=toff(m); assert m.call(gap=0)==11 and m.get(m.slide+O['SLIDE_ANIMATOR'])==0 and toff(m)==off
+    trest(m); assert toff(m)==0; passed()
+    # The row's cost, in instructions: at a full lead, under a mid-turn frame's. What a frame costs on the device is measured
+    # with the --dev gaps; this keeps a change from quietly doubling it.
+    def tpaint(m): m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.slide,m.canvas,0,0),gap=0,clear=False,count=50_000_000,debounce=True)
+    m=thumb_page(); n=[0]; h=m.u.hook_add(UC_HOOK_BLOCK,lambda u,a,size,x: n.__setitem__(0,n[0]+size//4),begin=BASE,end=SCRATCH-1)
+    tp(m); tpaint(m); assert m.draws; m.word(m.slide+O['SLIDE_OFFSET'],-O['CF_STRIDE']//4); n[0]=0
+    tpaint(m); turn_cost=n[0]; m.word(m.slide+O['SLIDE_OFFSET'],0); thold(m); no_letters(m); tspin(m,600,-110); assert struct.unpack('<f',m.u.mem_read(ps['th']+12,4))[0]>4  # a full lead
+    n[0]=0; draws=len(m.draws); tpaint(m); row_cost=n[0]; m.u.hook_del(h); assert len(m.draws)==draws+1 and turn_cost>1000000 and row_cost<turn_cost; passed()
+    # Centre opens the album the caption names, at once, however far ahead of the covers that is (letters off).
+    m=thumb_page(); tp(m); thold(m); no_letters(m); tspin(m,600,-110); shown=tcaption(m); assert toff(m)!=0
+    assert m.confirm()==11 and toff(m)==0 and tcaption(m)==shown
+    index=tindex(m); assert m.dispatched()[-1][1]==m.nodes[m.slide]['children'][index] and shown==f'Album {index}'; passed()
+else:
+    # Ticks in every theme: the covers never go raw, and a tick steps them.
+    for theme in ('1','0','2'):
+        SETUP[:]=[lambda k:(k.config.update(THEME=theme),k)]
+        try: m=DepthMachine(albums=9)
+        finally: SETUP.clear()
+        m.open(); m.handlers[sleep_hook+12]='stock_sleep'; m.fresh=1
+        tp(m); thold(m); tp(m,-50); assert traw(m)==0,theme
+        assert m.call(gap=1000)==11 and m.get(m.slide+O['SLIDE_ANIMATOR']),theme; passed()
+    # Letters held (an iPod classic's): a spin's ticks go by letters after CF_FIRST_MS; with the finger still on the wheel
+    # they stay letters, paused or turned back, and the big letter stays up; a lift ends them, and a tick is an album again.
+    LETTERS=[f'{w} {i}' for w in ('Alpha','Bravo','Charlie','Delta') for i in range(8)]
+    def letters_cf(held):
+        m=CoverflowMachine(albums=len(LETTERS))
+        for r,name in zip(m.albums,LETTERS): m.word(r+O['REC_ALBUM'],m.string(name))
+        m.open(); m.word(ps['wheel_held'],held); return m
+    def cf_target(m):  # the album the covers head for, or rest on
+        w=m.slide; a=m.get(w+O['SLIDE_ANIMATOR']); i=m.get(w+O['SLIDE_INDEX'])
+        return (i+(-signed(m.get(a+O['ANIM_X_TO']))//m.stride if a else 0))%len(LETTERS)
+    def cf_letter_up(m): return any(v[1]==ps['cf_letter_expire'] for v in m.timers.values())
+    for held in (1,0):
+        m=letters_cf(held); m.call(gap=1000); m.stride=-signed(m.get(m.get(m.slide+O['SLIDE_ANIMATOR'])+O['ANIM_X_TO']))
+        for _ in range(6): m.call(gap=100)
+        assert cf_target(m)==7 and not cf_letter_up(m),cf_target(m)
+        assert m.call(gap=100)==11 and cf_target(m)==8 and cf_letter_up(m),cf_target(m)  # CF_FIRST_MS: Bravo's first
+        assert m.call(gap=100)==11 and cf_target(m)==16; passed()  # Charlie's
+        if held:
+            assert m.call(gap=300)==11 and cf_target(m)==24; passed()  # a pause: still a letter, Delta's
+            m.advance(1000); assert cf_letter_up(m); passed()  # the letter stays up
+            assert m.call(O['KEY_PREV'],gap=100)==11 and cf_target(m)==16; passed()  # turned back: Charlie's again
+            m.word(ps['wheel_held'],0); m.advance(O['LETTER_MS']); assert not cf_letter_up(m); passed()  # a lift ends them
+            assert m.call(gap=300)==11 and cf_target(m)==17; passed()  # an album a tick again
+        else:
+            assert m.call(gap=300)==11 and cf_target(m)==17; passed()  # no finger seen: a pause ends them, as upstream's
 
 # Cover Flow's tracks under Classic: the panel at 40,35 over the covers; header 57 rows, title 31 px bold, artist 18 px regular, alpha c0; the theme's rows at 25 px with duration right at 23: AWTK's px are the face's whole height, not its em.
 PANEL_ROW=theme_builtins()[1]['page_row']; PANEL_SHOWN=(285-57)//PANEL_ROW; assert PANEL_SHOWN==7
