@@ -162,6 +162,7 @@ NP_META_PX = inc('NP_META_PX')
 NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
 NP_DOTS_Y = NP_SLIDE_H - 4       # above the seek bar's NP_TOUCH target
+NP_DOTS_UNDER = 270              # fork-only: Minimal's dots under the bar, between the times, as Centred's (stock's 270)
 # The art's gap below to the dots matches its gap above to "3 of 12"'s 16px text.
 NP_ART_Y = (NP_DOTS_Y - NP_ART - (NP_TOP - 16) // 2) // 2
 NP_TOUCH = 44
@@ -701,14 +702,17 @@ def playing_page(root, g=SET0):
             n[1][1] += lift
     # Classic's page reaches past the dots, down to its art's reflection, so a swipe takes it along
     slide_h = max(NP_SLIDE_H + lift, art_y + art + g.np_ipod * NP_REFLECT)
-    named['slide_view_view'][1] = [0, NP_TOP - lift, 375, max(NP_DOTS_Y + lift + 10, slide_h)]
+    # Fork-only: Minimal's dots always under the bar, between the times, as Centred Now Playing's; the
+    # column reaches down to them (the slider, over it, still takes its touches). Classic keeps its own.
+    dots_y = NP_DOTS_Y + lift if g.np_ipod else NP_DOTS_UNDER - NP_TOP
+    named['slide_view_view'][1] = [0, NP_TOP - lift, 375, max(dots_y + 10, slide_h)]
     named['slide_view'][1] = [0, 0, 375, slide_h]
     dots = named['slide_indicator1']
     for key in dots[2]:
         if key.endswith(':selected_fg_color'): dots[2][key] = '#eeeeee'
         elif key.endswith(':fg_color'): dots[2][key] = '#555555'
-    dots[1][1] = NP_DOTS_Y + lift
-    dots[2]['self_layout'] = f'default(x=0,y={NP_DOTS_Y + lift},w=100%,h=10)'
+    dots[1][1] = dots_y
+    dots[2]['self_layout'] = f'default(x=0,y={dots_y},w=100%,h=10)'
     # Without an anchor, stock's indicator centres its dots on the slide_view as widget_to_screen places it,
     # which takes away the view's own xoffset, a swipe's drag: dots laid out mid-swipe (any relayout lays them
     # out) slid with the page until the next layout. The same point as the indicator's own anchor: the

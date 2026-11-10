@@ -836,9 +836,11 @@ def validate_assets(directory):
             for node, color in ((album[3], '#CCCCCC'), (album[4], '#BBBBBB')):
                 assert {v for k, v in node[2].items() if k.endswith(':text_color')} == {color}
             assert pos[0] == NP_POS_X and album[0][1][0] == NP_MARGIN and 375 - 16 == album[2][1][0] + album[2][1][2]
-            # Distinct bands: top row, art, page dots, bar (A-B markers y 250 to 260), then the times.
+            # Distinct bands: top row, art, bar (A-B markers y 250 to 260), then the times with the page dots between them,
+            # as Centred Now Playing's (fork-only: upstream's dots sit between the art and the bar).
             dots = named['slide_indicator1'][1]
-            assert NP_TOP + 10 + 166 < NP_TOP + dots[1] and NP_TOP + dots[1] + 10 < NP_BAR[1] - 1
+            assert NP_TOP + dots[1] == 270 and NP_BAR[1] + NP_BAR[3] < NP_TOP + dots[1] and dots[3] == 10
+            assert named['slide_view_view'][1] == [0, NP_TOP, 375, dots[1] + 10]
             # The dots' own anchor, the slide_view's centre: stock's, with none, followed a swipe's offset.
             anchor = named['slide_indicator1'][2]
             assert anchor['anchor_x'] == f'{375 // 2 - dots[0]}px' and anchor['anchor_y'] == '0px' and 0 < dots[3] // 2
@@ -853,7 +855,8 @@ def validate_assets(directory):
             assert slider[1] == [NP_BAR[0], 233, NP_BAR[2], NP_TOUCH] and NP_TOUCH >= 44
             assert slider[2]['bar_size'] == '4' and slider[2]['slide_with_bar'] == 'true'
             assert slider[1][1] + (slider[1][3] - int(slider[2]['bar_size'])) // 2 == NP_BAR[1]
-            assert NP_TOP + dots[1] + dots[3] < slider[1][1]  # page swipes and seeking have separate targets
+            # page swipes and seeking have separate targets: the pages end above the slider, which is over the column
+            assert NP_TOP + named['slide_view'][1][3] < slider[1][1] and root[3].index(slider) > root[3].index(named['slide_view_view'])
             assert not [k for k in slider[2] if k.endswith((':bg_image', ':fg_image', ':icon'))]
             assert {v for k, v in slider[2].items() if k.endswith('_color')} == {'#1c1c1c', '#6e6e6e', '#00000000'}
             assert all(slider[2][f'style:{s}:border_color'] == '#00000000' for s in ('normal','pressed','over','disable','focused'))
