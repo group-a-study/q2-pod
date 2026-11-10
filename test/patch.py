@@ -8240,7 +8240,7 @@ m=lyric_page(); loop(m); a=m.alloc(0x80); m.word(m.lrc+O['VIEW_ANIMATOR'],a); m.
 assert m.get(m.lrc+O['VIEW_ANIMATOR'])==0 and ('widget_animator_destroy',a) in [c[:2] for c in m.calls]; passed()
 # The report: scroll, swipe away, screen off, next song, screen on, swipe back: the new song's top.
 m=lyric_page(); m.handlers[0x529f0c]='stock_lyric_rows'; loop(m); loop(m,-56); settle(m)
-m.nodes[m.slide]['value']=0; loop(m); assert follow(m,20)==40  # off the page, still held
+m.nodes[m.slide]['value']=0; loop(m); assert follow(m,20)==20  # off the page: stock's jump (fork-only: the hold goes)
 m.byte(syms['g_backlight_status'],0); loop(m); m.word(O['MCL_POS'],2); assert loop(m)==0
 m.word(m.lrc+O['SCROLL_Y'],60); assert rows(m)==0  # a stale follow, then the new song's rows
 m.byte(syms['g_backlight_status'],1); loop(m); m.pressed=1; loop(m); m.nodes[m.slide]['value']=1; loop(m)
