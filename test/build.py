@@ -420,11 +420,11 @@ def validate_assets(directory):
         expected_start = expected_start.replace(*REMOTE_HOOK)
     else:
         assert 'q2remote_sha256' not in manifest
-    assert b'q2-wheel.log' not in demo and b'q2-wheel.log' not in expected_start  # no build logs (fork-only)
         assert not (directory/'q2remote').exists()
         absent = subprocess.run(['unsquashfs', '-cat', str(directory/'rootfs.squashfs'), REMOTE],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         assert absent.returncode != 0, 'release rootfs contains q2remote'
+    assert b'q2-wheel.log' not in demo and b'q2-wheel.log' not in expected_start  # no build logs (fork-only)
     assert read('rootfs.squashfs', S90PLAY) == expected_start
     assert read('rootfs.squashfs', S11LOGO) == read('stock.squashfs', S11LOGO).replace(*LOGO_HOOK)  # the card's logo, if saved
     assert read('rootfs.squashfs', BLUEALSA2) == read('stock.squashfs', BLUEALSA2).replace(*BT_KEEPALIVE)  # keep-alive 5 s

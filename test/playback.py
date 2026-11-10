@@ -889,7 +889,7 @@ import random,zlib
 # The encoder thread whole, with no finger assumed: stock's own loop (0x6259e8, get_direction's tail,
 # with ringnav_ts_read in it) reads a mock ts_read and posts to a 20-event queue that drops its oldest,
 # as main_loop_simple_queue_event does. A UI that drains after each read is one keeping up.
-INPUT=HOOKS['window_manager_dispatch_input_event'][0]; LOG='/mnt/data/q2-wheel.log'; DEV=manifest['dev']
+INPUT=HOOKS['window_manager_dispatch_input_event'][0]; LOG='/mnt/data/q2-wheel.log'; DEV=0  # no build logs, --dev's included (fork-only)
 class EncoderMachine(PlaybackMachine):
     GP=0xa26cc0
     def __init__(self,pct=50):

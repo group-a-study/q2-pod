@@ -1254,8 +1254,8 @@ assert m.call()==11 and m.selected(w)==2
 m.pressed=0; passed()
 # A press with no pointer event for STALE_TOUCH_MS is healed once per pass of ringnav_sleep: an abort to the
 # top window's targets, so a row can't click, then the release stock never got, at the touch's last place. Only
-# events that reach the window manager count, pointer events only: a key is no finger, and a move is. A --dev
-# build also notes it in q2-wheel.log; a release build opens no file.
+# events that reach the window manager count, pointer events only: a key is no finger, and a move is. No build
+# opens a file for it (fork-only: upstream's --dev notes it in q2-wheel.log).
 m.handlers[payload_syms['stock_input_trampoline']]='stock_input'
 m.handlers[HOOKS['main_loop_sleep_default'][0]+12]='stock_sleep'
 m.mock('widget_dispatch_event_to_target_recursive')
@@ -1270,8 +1270,7 @@ m.now+=1; steps=heal()
 assert [c[0] for c in steps]==['widget_dispatch_event_to_target_recursive','stock_input']
 assert steps[0][1]==m.top and m.get(steps[0][2])==O['EVT_POINTER_ABORT']
 assert steps[1][1]==m.wm and m.get(steps[1][2])==O['EVT_POINTER_UP_BEFORE']-1 and (m.get(steps[1][2]+O['EVENT_X']),m.get(steps[1][2]+O['EVENT_Y']))==(33,44)
-assert len(opens())==(1 if manifest['dev'] else 0)
-if manifest['dev']: assert m.text(opens()[0][2])=='ab'
+assert not opens()
 assert not heal()  # still pressed (stock's flag not what it reads): one try per STALE_TOUCH_MS, not every pass
 m.now+=O['STALE_TOUCH_MS']; assert len(heal())==2
 m.pressed=0; m.now+=O['STALE_TOUCH_MS']; assert not heal()  # nothing pressed: nothing to do

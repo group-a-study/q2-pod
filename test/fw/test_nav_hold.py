@@ -2114,31 +2114,10 @@ def test_a_press_younger_than_the_limit_is_left(fw, ui, st):
     assert not fw.calls('stock_input_trampoline')
 
 
-def test_a_stale_press_is_noted_eight_times_a_boot(fw, ui, st):
-    card = Card(fw)
-    ui.window('allmusic_page')
-    fw.mock('time_now_ms', lambda *_: 61000)
-    note = fw.fn('navigation__stale_note', None, C.c_uint)
-    for _ in range(9):
-        note(5100)
-    lines = card.files['/mnt/data/q2-wheel.log'].decode().splitlines()
-    assert len(lines) == 8 and lines[0].startswith('== wheel: stale press at 61 s: top=allmusic_page ')
-    assert lines[0].endswith(' 5100 ms ago')
-
-
-def test_a_note_says_whether_the_touch_thread_holds_a_press(fw, ui):
-    card = Card(fw)
-    loop = C.create_string_buffer(0x80)
-    loop[O['LOOP_PRESSED']] = b'\x01'
-    fw.mock('main_loop', lambda *_: C.addressof(loop))
-    fw.fn('navigation__stale_note', None, C.c_uint)(6000)
-    assert ' thread=1 ' in card.files['/mnt/data/q2-wheel.log'].decode()
-
-
-def test_a_note_with_no_log_writes_nothing(fw, ui):
-    fw.mock('fw_fopen', lambda *_: 0)
-    fw.fn('navigation__stale_note', None, C.c_uint)(5100)
-    assert not fw.calls('fw_fputs')
+def test_a_stale_press_writes_no_log(fw, ui, st):
+    # fork-only: no build notes it (upstream's --dev wrote q2-wheel.log)
+    with pytest.raises(AttributeError):
+        fw.fn('navigation__stale_note', None, C.c_uint)
 
 
 def quick(fw, ui, state, idex=-1, pressed=0):
