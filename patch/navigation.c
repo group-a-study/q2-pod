@@ -10698,7 +10698,7 @@ static unsigned row_initial(menu_t *m, int i) {
 static int table_source(menu_t *m) {
     static const unsigned short fields[] = { REC_TITLE, REC_NAME, REC_ALBUM, REC_ARTIST,
                                              REC_ALBUM_ARTIST };
-    void *d = P(p_deque_showlist, 0);
+    void *d = ll.deque = P(p_deque_showlist, 0); /* judged, found or not */
     unsigned n = d ? deque_size(d) : 0;
     for (unsigned f = 0; f < sizeof fields / sizeof *fields; ++f)
         for (int off = 0; off <= 1; ++off) {
@@ -10715,7 +10715,7 @@ static int table_source(menu_t *m) {
                     ++bad;
             }
             if (good >= 2 && bad <= 1) {
-                ll.deque = d, ll.field = fields[f], ll.off = off;
+                ll.field = fields[f], ll.off = off;
                 return 1;
             }
         }
@@ -10761,7 +10761,8 @@ static int letter_tick(menu_t *m, int id, int dir, unsigned now) {
         (m->ctx >= 0 && contexts[m->ctx].kind == CTX_FIXED) ||
         !tk_strcmp(widget_get_prop_str(m->w, "name", ""), "scroll_view_localmusic"))
         return -2;
-    if (now - ll.seen > LETTER_MS) /* a new run: the list is judged again */
+    /* a new run, or a table whose records were replaced: the list is judged again */
+    if (now - ll.seen > LETTER_MS || (m->kind == 2 && ll.deque != P(p_deque_showlist, 0)))
         ll.ok = (m->kind == 1 || table_source(m)) && name_order(m) ? 1 : -1;
     ll.seen = now;
     if (ll.ok < 0) return -2;
