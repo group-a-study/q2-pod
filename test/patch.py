@@ -8141,9 +8141,11 @@ m=lyric_page(config={'WHEELSENSITIVITY':'100'}); loop(m); hold(m); loop(m,-14); 
 m=lyric_page(); loop(m); loop(m,-56); settle(m); assert y(m)==40
 assert follow(m,0)==40; m.advance(O['SCRUB_MS']+1000); assert settle(m)[-1]==40 and follow(m,0)==40
 assert not did(m,'playing_timer_clear') and not m.starts; passed()
-# Swiped away and back, the hold stays: the follow leaves them, hidden or shown.
-m.nodes[m.slide]['value']=0; loop(m); assert raw(m)==0 and follow(m,70)==40
-m.nodes[m.slide]['value']=1; loop(m); assert raw(m)==1 and follow(m,90)==40 and settle(m)[-1]==40; passed()
+# Swiped away, the hold goes and the follow jumps (stock's scroll_to) while the page is hidden;
+# back on the page the follow glides (fork-only: upstream keeps the hold until Now Playing goes).
+m.nodes[m.slide]['value']=0; loop(m); assert raw(m)==0 and follow(m,70)==70
+m.nodes[m.slide]['value']=1; loop(m); assert raw(m)==1 and follow(m,90)==70
+ys=settle(m); assert ys[-1]==90 and ys[0]<90,ys; passed()
 # Now Playing gone and opened again, the hold is gone: the follow moves them.
 f,ctx=m.handler(m.win,O['EVT_DESTROY']); step(m,address=f,args=(ctx,m.event,0,0),gap=0)
 scrub_page(m=m); m.nodes[m.win]['children'].append(m.slide); loop(m); follow(m,90); assert settle(m)[-1]==90; passed()

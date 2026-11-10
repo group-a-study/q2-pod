@@ -1704,7 +1704,8 @@ def test_a_drag_holds_the_lyrics_and_a_tap_holds_nothing(fw, ui, mcl, st):
     assert st.lyric_held == 1 and lyr.settle() == at + 70
 
 
-def test_a_swipe_away_and_back_keeps_the_hold_and_a_new_song_starts_at_the_top(fw, ui, mcl, st, wheel):
+def test_a_swipe_away_drops_the_hold_and_a_new_song_starts_at_the_top(fw, ui, mcl, st, wheel):
+    # fork-only: a swipe to another page ends the hold, so back on the page the lyrics follow the song
     theme(fw, st, CLASSIC)
     lyr = Lyrics(fw, ui, mcl, st, sec=35)
     lyr.settle()
@@ -1716,9 +1717,12 @@ def test_a_swipe_away_and_back_keeps_the_hold_and_a_new_song_starts_at_the_top(f
     ui.ints[lyr.slide, b'value'] = 2  # the info page
     lyr.sec = 55  # the song goes on meanwhile
     lyr.poll(10, ms=250)
-    assert st.lyric_held == 1 and fw.var('wheel_raw', C.c_int).value == 0
+    assert st.lyric_held == 0 and fw.var('wheel_raw', C.c_int).value == 0
     ui.ints[lyr.slide, b'value'] = 1
-    assert lyr.settle() == held != centre(5)  # where the wheel left them, not the playing line
+    assert lyr.settle() == centre(5) != held  # the playing line, not where the wheel left them
+    travel.value = -100
+    lyr.poll(1)
+    assert st.lyric_held == 1
     mcl.pos = 4
     lyr.poll(1)
     assert st.lyric_held == 0 and lyr.y() < centre(3)  # the next song's lyrics from the top
