@@ -2214,45 +2214,6 @@ static int flip_paint(void *w, void *canvas) {
     return 1;
 }
 
-#if Q2POD_DEV
-/* --dev builds only (docs/internals.md#coverflow-step): each frame of a run in RAM, a store a
- * frame. They go to /tmp/q2-cf-gaps.log at the first paint after the run, if /tmp/q2-cf-gaps.on
- * exists. */
-#define GAP_FRAMES 128
-#define GAP_MAX_BYTES 262144
-static struct {
-    unsigned n, last;
-    struct {
-        unsigned short gap, decode, render;
-        short offset;
-    } row[GAP_FRAMES];
-} gaps __attribute__((section(".scratch")));
-static void gap_note(void *w, unsigned t0, unsigned t1, unsigned t2) {
-    unsigned i = gaps.n++ % GAP_FRAMES;
-    gaps.row[i].gap = (unsigned short)(t0 - gaps.last);
-    gaps.row[i].decode = (unsigned short)(t1 - t0);
-    gaps.row[i].render = (unsigned short)(t2 - t1);
-    gaps.row[i].offset = (short)I(w, SLIDE_OFFSET);
-    gaps.last = t0;
-    if (P(w, SLIDE_ANIMATOR) || th.on) return;
-    void *on = gaps.n > 1 ? fopen("/tmp/q2-cf-gaps.on", "rb") : 0;
-    void *f = on ? fopen("/tmp/q2-cf-gaps.log", "ab") : 0;
-    if (on) fclose(on);
-    if (f && !fseek(f, 0, 2) && ftell(f) < GAP_MAX_BYTES) {
-        char s[64];
-        tk_snprintf(s, sizeof s, "== run at %u ms: %u frames\n", t0, gaps.n);
-        fputs(s, f);
-        for (i = gaps.n > GAP_FRAMES ? gaps.n - GAP_FRAMES : 0; i < gaps.n; ++i) {
-            unsigned k = i % GAP_FRAMES;
-            tk_snprintf(s, sizeof s, "gap=%u decode=%u render=%u offset=%d\n", gaps.row[k].gap,
-                        gaps.row[k].decode, gaps.row[k].render, gaps.row[k].offset);
-            fputs(s, f);
-        }
-    }
-    if (f) fclose(f);
-    gaps.n = 0;
-}
-#endif
 /* ringnav_paint (the border hook, after stock painted the slide_menu's empty children) calls this
  * for every widget: over Coverflow's slide_menu it draws the frame, rendered again only when the
  * position or a texture has changed. */
@@ -2270,13 +2231,7 @@ void coverflow_paint(void *w, void *canvas) {
         sh = cf_round(th.lead); /* draw_row's: the window round the facing cover */
     }
     const unsigned *wide[CF_WIDE], **ring = wide + CF_WIDE_REACH - CF_REACH;
-#if Q2POD_DEV
-    unsigned gap_t0 = (unsigned)time_now_ms();
-#endif
     fx_ring(c + sh, n, ring);
-#if Q2POD_DEV
-    unsigned gap_t1 = (unsigned)time_now_ms();
-#endif
     if (!fx.drawn || c != fx.c || frac != fx.frac || lead != fx.lead) {
         unsigned *d = (unsigned *)bitmap_lock_buffer_for_write(fx.frame);
         if (!d) return;
@@ -2284,9 +2239,6 @@ void coverflow_paint(void *w, void *canvas) {
         bitmap_unlock_buffer(fx.frame);
         fx.c = c, fx.frac = frac, fx.lead = lead, fx.drawn = 1;
     }
-#if Q2POD_DEV
-    gap_note(w, gap_t0, gap_t1, (unsigned)time_now_ms());
-#endif
     if (!th.on && c + 1 != cf.titled && !cf.title_timer) cf.title_timer = timer_add(retitle, 0, 0);
     int r[4] = { 0, 0, CF_VIEW_W, cfs.view_h };
     canvas_draw_image(canvas, fx.frame, r, r);

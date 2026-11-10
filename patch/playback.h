@@ -40,7 +40,6 @@ extern volatile int wheel_raw, wheel_travel, wheel_held, wheel_mute;
 enum { WHEEL_TICKS, WHEEL_RAW, WHEEL_THUMB }; /* wheel_raw's values: off, 1, 2 */
 extern volatile unsigned wheel_frame_at; /* the wheel's last frame with pressure */
 enum { THUMB_MOVED = 1, THUMB_TURNED = 2, THUMB_CLICK = 4 }; /* coverflow_wheel_poll's answer */
-void wheel_gate_note(void); /* --dev: tick_gate dropped a tick for want of a frame */
 int playback_keeps(void *q, int at), restart_armed(int key);
 void playback_np(void);
 #endif

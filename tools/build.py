@@ -278,7 +278,7 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
         # demo's stderr (docs/boot.md#rockbox-from-home): stock starts its Bluetooth and Wi-Fi helpers from demo,
         # so they inherit it and their reasons for failing land here, in RAM, instead of on the serial console;
         # emptied once a minute past 512 KB (O_APPEND keeps demo writing at its end), its tail goes in the crash
-        # log. stdout stays on the console as stock's; --dev takes both (LOG_HOOK)
+        # log. stdout stays on the console as stock's
         (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.err); [ "${{n:-0}}" -gt 524288 ] && : >/tmp/q2-demo.err; done) &
         while :; do
             /release/bin/demo 2>>/tmp/q2-demo.err
@@ -308,7 +308,6 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
                 [ -f /tmp/q2-art-file ] && {{ echo "== last art"; cat /tmp/q2-art-file; }}
                 [ -f /tmp/q2-art.log ] && {{ echo "== art"; tail -n 60 /tmp/q2-art.log; }}
                 [ -f /tmp/q2-demo.err ] && {{ echo "== stderr"; tail -n 60 /tmp/q2-demo.err; }}
-                [ -f /tmp/q2-demo.log ] && {{ echo "== q2-demo.log"; tail -n 200 /tmp/q2-demo.log; }}
             }} > $c.tmp 2>&1; mv $c.tmp $c
             sync
         fi
@@ -321,28 +320,6 @@ S11LOGO = 'etc/init.d/S11logo_display_shell'
 LOGO, LOGO_LIGHT = 'release/assets/default/raw/images/xx/logo.jpg', 'release/assets/default/raw/images/xx/logo-light.jpg'
 REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
                b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n/usr/bin/q2remote &\n')
-# --dev only (docs/remote.md#log): demo's console output, and hciplayer's, which inherits it, in RAM, so
-# emptied once a minute past 4 MB (O_APPEND keeps demo writing at its end), in place of the release's stderr
-# file and its cap. In BOOT_HOOK's start path.
-LOG_HOOK = (b'        (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.err); [ "${n:-0}" -gt 524288 ] && : >/tmp/q2-demo.err; done) &\n'
-            b'        while :; do\n            /release/bin/demo 2>>/tmp/q2-demo.err\n',
-            b'        (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.log); [ "${n:-0}" -gt 4000000 ] && : >/tmp/q2-demo.log; done) &\n'
-            b'        while :; do\n            /release/bin/demo >>/tmp/q2-demo.log 2>&1\n')
-# --dev only: the wheel's frame log (playback.c wl_flush) and stale-press notes (navigation.c stale_note) go to the
-# card's q2-wheel.log, appended, when the card is up, up to 256 KB. In BOOT_HOOK's start path.
-WHEEL_LOG_HOOK = (b'        rb=/mnt/mmc/.rockbox\n',
-                  b'        w=/mnt/data/q2-wheel.log\n'
-                  b'        [ -f $w ] && (\n'
-                  b'            i=0\n'
-                  b"            while [ $i -lt 60 ] && ! grep -q ' /mnt/mmc ' /proc/mounts; do usleep 500000; i=$((i+1)); done\n"
-                  b"            grep -q ' /mnt/mmc ' /proc/mounts || exit\n"
-                  b'            c=/mnt/mmc/q2-wheel.log\n'
-                  b'            n=$(wc -c 2>/dev/null <$c)\n'
-                  b'            [ "${n:-0}" -lt 262144 ] || { rm -f $w; exit; }\n'
-                  # renamed first: a flush after this makes a new file for the next boot
-                  b'            mv -f $w $w.m && cat $w.m >> $c && sync && rm -f $w.m\n'
-                  b'        ) &\n'
-                  b'        rb=/mnt/mmc/.rockbox\n')
 # The byte in bluealsa's AAC capability holding the 44.1 kHz bit; see docs/internals.md.
 BLUEALSA = 'usr/bin/bluealsa'
 # Its launcher: keep the A2DP transport open 5 s after hciplayer closes the PCM (a stop, a skip, a cold start), so
@@ -1952,9 +1929,8 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     s90play = cat(S90PLAY)
     check(s90play.count(BOOT_HOOK[0]) == 1 and s90play.count(REMOTE_HOOK[0]) == 1, 'Unexpected S90play')
     s90play = s90play.replace(*BOOT_HOOK)
-    check(s90play.count(LOG_HOOK[0]) == 1, 'Unexpected demo loop')
-    check(s90play.count(WHEEL_LOG_HOOK[0]) == 1, 'Unexpected card path')
-    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK) if dev else s90play)
+    # --dev builds keep demo's output where a release build has it, and no wheel log: no build logs (fork-only)
+    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK) if dev else s90play)
     (out/'config.ini').write_bytes(default_config(cat(DEFAULT_CONFIG)))
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')

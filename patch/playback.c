@@ -152,98 +152,6 @@ static volatile unsigned wh_tick_at __attribute__((section(".scratch"))),
     wh_since __attribute__((section(".scratch"))), wh_armed_at __attribute__((section(".scratch")));
 static volatile int wh_armed __attribute__((section(".scratch")));
 volatile int wheel_mute __attribute__((section(".scratch")));
-#if Q2POD_DEV
-/* ponytail: temporary, --dev builds only, comes out once the runaway report is explained. The last
- * WL_FRAMES ring frames in RAM, a store per frame; a copy goes to /mnt/data/q2-wheel.log, synced to
- * outlast a forced restart, when Return stops a run, a run passes WL_RUN_MS with no WHEEL_FRESH_MS gap
- * or tick_gate starts dropping: WL_FLUSHES a boot, never past WL_MAX_BYTES, one writer at a time (a
- * flush while one writes is lost). The next boot moves it to the card (tools/build.py WHEEL_LOG_HOOK). */
-#define WL_FRAMES 64
-#define WL_RUN_MS 30000
-#define WL_FLUSHES 8
-#define WL_MAX_BYTES 32768
-typedef struct {
-    int x, pressure;
-    unsigned ms;
-} wl_frame;
-static wl_frame wl_frames[WL_FRAMES] __attribute__((section(".scratch"))),
-    wl_copy[WL_FRAMES] __attribute__((section(".scratch")));
-static unsigned wl_next __attribute__((section(".scratch"))),
-    wl_copy_next __attribute__((section(".scratch"))),
-    wl_copy_at __attribute__((section(".scratch"))), wl_flushes __attribute__((section(".scratch"))),
-    wl_run_at __attribute__((section(".scratch"))), wl_drop_at __attribute__((section(".scratch"))),
-    wl_stops __attribute__((section(".scratch"))), wl_drops __attribute__((section(".scratch")));
-static int wl_run __attribute__((section(".scratch"))); /* 0 none, 1 going, 2 logged */
-static int wl_busy __attribute__((section(".scratch")));
-static const char *wl_why __attribute__((section(".scratch")));
-static void *wl_write(void *unused) {
-    void *f = fopen("/mnt/data/q2-wheel.log", "ab");
-    long size = f && !fseek(f, 0, 2) ? ftell(f) : -1;
-    if (size >= 0 && size < WL_MAX_BYTES) {
-        char s[80];
-        tk_snprintf(s, sizeof s, "== wheel: %s at %u ms: gate drops %u, stops %u\n", wl_why,
-                    wl_copy_at, wl_drops, wl_stops);
-        fputs(s, f);
-        for (unsigned i = 0; i < WL_FRAMES; ++i) {
-            const wl_frame *k = &wl_copy[(wl_copy_next + i) % WL_FRAMES];
-            if (!k->ms) continue; /* not filled yet */
-            tk_snprintf(s, sizeof s, "%u x=%d p=%d\n", k->ms, k->x, k->pressure);
-            fputs(s, f);
-        }
-        fflush(f);
-        fsync(fileno(f));
-    }
-    if (f) fclose(f);
-    wl_busy = 0;
-    return unused;
-}
-/* Any thread. The copy may catch one frame half written, which a log can bear. */
-static void wl_flush(const char *why) {
-    unsigned long thread;
-    if (!__sync_bool_compare_and_swap(&wl_busy, 0, 1)) return;
-    if (wl_flushes >= WL_FLUSHES) {
-        wl_busy = 0;
-        return;
-    }
-    wl_flushes++;
-    wl_why = why;
-    wl_copy_next = wl_next;
-    wl_copy_at = (unsigned)time_now_ms();
-    memcpy(wl_copy, wl_frames, sizeof wl_copy);
-    if (pthread_create(&thread, 0, wl_write, 0))
-        wl_busy = 0;
-    else
-        pthread_detach(thread);
-}
-/* tick_gate, for a tick with no frame: a run of them leaves a line that tells it from a ghost. */
-void wheel_gate_note(void) {
-    unsigned now = (unsigned)time_now_ms();
-    wl_drops++;
-    if (now - wl_drop_at >= WHEEL_FRESH_MS) wl_flush("a tick with no ring frame");
-    wl_drop_at = now;
-}
-static void wl_note_frame(const int *s) {
-    wl_frame *k = &wl_frames[wl_next++ % WL_FRAMES];
-    k->x = s[0], k->pressure = s[2], k->ms = (unsigned)time_now_ms();
-    if (!s[2]) wl_run = 0;
-}
-static void wl_note_stop(void) {
-    wl_stops++;
-    wl_run = 2;
-    wl_flush("Return stopped a run");
-}
-static void wl_note_tick(unsigned now, unsigned before) {
-    if (!wl_run || now - before >= WHEEL_FRESH_MS) wl_run = 1, wl_run_at = now;
-    if (wl_run == 1 && now - wl_run_at >= WL_RUN_MS) {
-        wl_run = 2;
-        wl_flush("a run past 30 s");
-    }
-}
-#else
-#define wl_note_frame(s) ((void)0)
-#define wl_note_stop() ((void)0)
-#define wl_note_tick(now, before) ((void)(before))
-#endif
 
 /* main_loop_queue_event (tools/build.py QUEUE_LEAF): the one way into the UI loop's queue, for every
  * input thread, SyncLink's keys and idle requests alike; full, it drops its oldest event. The touch
@@ -272,7 +180,6 @@ int ringnav_queue_event(void *loop, const unsigned *r) {
         } else if (wh_since >= WHEEL_STOP_TICKS && (int)(now - wh_tick_at) < WHEEL_ESCAPE_TICK_MS &&
                    (int)(now - wheel_frame_at) < WHEEL_FRESH_MS) {
             wheel_mute = 1;
-            wl_note_stop();
         }
     }
     return r[0] ? post(loop, r) : 0;
@@ -286,7 +193,6 @@ volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the
 /* struct ts_sample {int x, y; unsigned pressure; struct timeval tv;} */
 void wheel_sample(int *s, int ret, char *info) {
     if (ret <= 0) return;
-    wl_note_frame(s); /* x as it came, before anything judges it */
     if (!s[2]) { /* lifted */
         /* Stock's lift path (0x625b88) ticks on an x away from its touch-down x, 0 once it has seen
          * this touch's lift, per sample and past wheel_post's guard: it only ever sees that x. */
@@ -333,11 +239,9 @@ void wheel_sample(int *s, int ret, char *info) {
     wh_acc = dark_held(&d) ? 0 : wh_acc + d;
     while (wh_acc >= units || wh_acc <= -units) {
         int dir = wh_acc > 0 ? 1 : -1;
-        unsigned before = wh_tick_at;
         wh_acc -= dir * units;
         wh_tick_at = now;
         wh_since++;
-        wl_note_tick(now, before);
         if (!wheel_mute) wheel_post(info, dir > 0 ? KEY_PREV : KEY_NEXT); /* x rising is back, as stock */
     }
     s[0] = wh_anchor;

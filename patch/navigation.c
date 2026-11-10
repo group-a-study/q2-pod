@@ -9192,32 +9192,11 @@ static int quick_wheel_toggle(void *top) {
  * STALE_TOUCH_MS is a guess, and that the flag is what window_manager_get_pointer_pressed reads
  * (vtable +0x44) and that widgets drop a press on the abort are AWTK's source, not traced in demo;
  * the time stamped here holds a wrong guess to one try per STALE_TOUCH_MS.
- * --dev builds only (Q2POD_DEV): each heal, STALE_NOTES a boot, goes to q2-wheel.log, which the
- * next boot appends to the card's (tools/build.py WHEEL_LOG_HOOK): the page, the pull-down's state
- * and slide timer, the touch thread's own down flag (LOOP_PRESSED) and the last pointer event. */
-#define STALE_NOTES 8
-static void stale_note(unsigned age) {
-    if (st.stale_notes >= STALE_NOTES) return;
-    st.stale_notes++;
-    unsigned char *loop = main_loop();
-    void *top = window_manager_get_top_window(window_manager());
-    char s[160];
-    tk_snprintf(s, sizeof s,
-                "== wheel: stale press at %u s: top=%s pull-down=%d slide=%d thread=%d "
-                "last=%x %u ms ago\n",
-                (unsigned)time_now_ms() / 1000, top ? widget_get_prop_str(top, "name", "") : "-",
-                I(g_dropdown_menu_state, 0), top ? widget_get_prop_int(top, "timer_idex", -1) : -1,
-                loop ? loop[LOOP_PRESSED] : -1, st.touch_type, age);
-    void *f = fopen("/mnt/data/q2-wheel.log", "ab");
-    if (!f) return;
-    fputs(s, f);
-    fclose(f);
-}
+ */
 static void stale_heal(void) {
     void *wm = window_manager(), *top = window_manager_get_top_window(wm);
     unsigned now = (unsigned)time_now_ms(), age = now - st.touch_at, abort_event[12], up[12];
     if (age < STALE_TOUCH_MS || !window_manager_get_pointer_pressed(wm)) return;
-    if (Q2POD_DEV) stale_note(age);
     st.touch_at = now;
     if (top)
         widget_dispatch_event_to_target_recursive(
@@ -9979,7 +9958,6 @@ static int tick_gate(void *e) {
         return 0;
     }
     st.tick_drop |= bit;
-    if (Q2POD_DEV && !muted) wheel_gate_note();
     return 1;
 }
 int ringnav_input(void *wm, void *e) {
