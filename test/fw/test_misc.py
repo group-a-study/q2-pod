@@ -8,6 +8,7 @@ import struct
 import zipfile
 
 import pytest
+from test_books import stored  # test_books.py keeps the stored-block maker
 
 CENTER, PREV, NEXT, PLAY, RETURN, BACK_BTN, FWD_BTN = 218, 172, 173, 171, 170, 222, 223
 FNV = 2166136261
@@ -438,15 +439,16 @@ def test_extensions_hostile_sweep(fw):
 CONTAINER = b'<container><rootfiles><rootfile full-path="%s" media-type="application/oebps-package+xml"/></rootfiles></container>'
 
 
-def epub(opf_path, chapters, compression=zipfile.ZIP_DEFLATED, extra=None, spine=None):
-    """chapters: (href, zip name, text). spine: the itemrefs, by default each chapter's in turn."""
+def epub(opf_path, chapters, compression=zipfile.ZIP_DEFLATED, extra=None, spine=None, container=None):
+    """chapters: (href, zip name, text). spine: the itemrefs, by default each chapter's in turn. container:
+    container.xml's bytes in place of the one naming opf_path."""
     buf = io.BytesIO()
     items = ''.join(f'<item id="c{i}" href="{href}" media-type="application/xhtml+xml"/>' for i, (href, _, _) in enumerate(chapters))
     refs = ''.join(f'<itemref idref="c{i}"/>' for i in range(len(chapters))) if spine is None else spine
     opf = f'<package><manifest>{items}</manifest><spine>{refs}</spine></package>'
     with zipfile.ZipFile(buf, 'w', compression) as z:
         z.writestr('mimetype', 'application/epub+zip')
-        z.writestr('META-INF/container.xml', CONTAINER % opf_path.encode())
+        z.writestr('META-INF/container.xml', container or CONTAINER % opf_path.encode())
         z.writestr(opf_path, opf)
         for _, name, text in chapters:
             z.writestr(name, f'<html><body><p>{text}</p></body></html>')
@@ -548,6 +550,74 @@ def test_cancel_stops_with_nothing(fw):
 @pytest.mark.parametrize('data', (b'', b'PK', b'not a zip at all' * 20, b'PK\x05\x06' + bytes(18)))
 def test_what_is_no_zip_is_no_book(fw, data):
     assert convert(fw, data)[0] == 0
+
+
+CD_MAX, ITEM_MAX = 2 << 20, 8 << 20  # books.c's
+ONE = [('a.xhtml', 'a.xhtml', 'One')]
+
+
+def end_record(data):
+    return data.rindex(b'PK\x05\x06')
+
+
+def central(data, name):
+    """name's central-directory record: its last occurrence is the record's name, 46 bytes in."""
+    return data.rindex(name) - 46
+
+
+def patch(data, at, raw):
+    return data[:at] + raw + data[at + len(raw):]
+
+
+def padded_cd(size):
+    """A one-chapter book whose central directory is size bytes: zeros after its last record, where zip_read stops."""
+    data = epub('c.opf', ONE)
+    end = end_record(data)
+    pad = size - struct.unpack_from('<I', data, end + 12)[0]
+    return patch(data[:end] + bytes(pad) + data[end:], end + pad + 12, struct.pack('<I', size))
+
+
+XML = CONTAINER % b'c.opf'
+
+
+def packed_container(packed):
+    """A one-chapter book whose container.xml is packed bytes of hand-made stored blocks: 128 of at most 65535 bytes,
+    5 bytes over each, so its size, packed - 640, is under ITEM_MAX and only the packed size is at the limit."""
+    size = packed - 640
+    xml = XML.ljust(size)
+    data = epub('c.opf', ONE, zipfile.ZIP_STORED,
+                container=b''.join(stored(xml[k:k + 65535], k + 65535 >= size) for k in range(0, size, 65535)))
+    at = central(data, b'META-INF/container.xml')  # zip_read takes the method and both sizes from this record only
+    return patch(patch(data, at + 10, b'\x08\x00'), at + 24, struct.pack('<I', size))
+
+
+def test_a_central_directory_of_2_mb_is_read_and_one_byte_more_refused(fw):
+    assert convert(fw, padded_cd(CD_MAX)) == (1, b'One')
+    assert convert(fw, padded_cd(CD_MAX + 1))[0] == 0
+
+
+def test_an_entry_of_8_mb_is_read_and_one_byte_more_refused(fw):
+    assert convert(fw, epub('c.opf', ONE, container=XML.ljust(ITEM_MAX))) == (1, b'One')
+    assert convert(fw, epub('c.opf', ONE, container=XML.ljust(ITEM_MAX + 1)))[0] == 0  # deflated, packed far under
+
+
+def test_an_entry_packed_to_8_mb_is_read_and_one_byte_more_refused(fw):
+    assert convert(fw, packed_container(ITEM_MAX)) == (1, b'One')
+    assert convert(fw, packed_container(ITEM_MAX + 1))[0] == 0
+
+
+def test_an_encrypted_entry_is_refused(fw):
+    data = epub('c.opf', ONE)
+    at = central(data, b'META-INF/container.xml') + 8
+    assert convert(fw, data)[0] == 1
+    assert convert(fw, patch(data, at, bytes([data[at] | 1])))[0] == 0  # the flags' bit 0
+
+
+def test_zip64_sizes_are_refused(fw):
+    """ZIP64 marks a size it moved to an extra field 0xffffffff, which ITEM_MAX refuses: zip_read has no ZIP64 check of
+    its own."""
+    data = epub('c.opf', ONE)
+    assert convert(fw, patch(data, central(data, b'META-INF/container.xml') + 20, b'\xff' * 8))[0] == 0
 
 
 def test_no_container_or_no_full_path_is_no_book(fw):

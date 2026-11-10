@@ -222,7 +222,7 @@ extern const char *radio_hold(void *top);
 extern void visualizer_paint(void *w, void *canvas), visualizer_attach(void *win);
 extern int visualizer_live(void), games_live(void);
 extern unsigned char now_cover(void *r, const char **file);
-extern void scrobble_append(const char *line, unsigned n);
+extern int scrobble_append(const char *line, unsigned n);
 extern int staged_into(void *into, int (*query)(void *), void *arg);
 /* Scope music detail loads too: spoken tracks can share all their tags with music. */
 void *staged_music(int (*query)(void *), void *arg, int *count) {
@@ -1747,7 +1747,11 @@ static void paint_letter(void *w, void *canvas) {
         !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w) ||
         (g_menu.ctx >= 0 && contexts[g_menu.ctx].kind == CTX_FIXED) || /* menus: not alphabetical */
         /* nor Library's categories beside Home's pane */
-        !tk_strcmp(widget_get_prop_str(w, "name", ""), "scroll_view_localmusic"))
+        !tk_strcmp(widget_get_prop_str(w, "name", ""), "scroll_view_localmusic") ||
+        /* nor an album's tracks in Cover Flow, which are in album order (disc and track).
+         * The Library's album songs never arm it (the wheel handler, by page).
+         * ponytail: other lists in an order of their own keep it */
+        coverflow_tracks(window_of(w)))
         return;
     int i = index_of(&g_menu, widget_get_prop_int(w, SEL, -1));
     const unsigned *s = i < 0 ? (void *)0 : letters_text(w, g_menu.at[i]);
@@ -9393,8 +9397,7 @@ static void scrobble(void *r, int total, int heard) {
     if (I(r, REC_TRACK) > 0) o += tk_snprintf(o, 12, "%d", I(r, REC_TRACK));
     o += tk_snprintf(o, (unsigned)(line + sizeof line - o), "\t%d\tL\t%u\t\n", total,
                      (unsigned)(now - heard));
-    scrobble_append(line, (unsigned)(o - line));
-    scrobble_listened();
+    if (scrobble_append(line, (unsigned)(o - line))) scrobble_listened();
 }
 
 /* The polled track's place at sec, its file's seconds. A CUE track becomes the book's place only
@@ -11157,12 +11160,18 @@ int ringnav(void *ctx, void *event) {
             slide_menu_scroll_to_prev(w);
     } else if (g_menu.n) {
         int id = widget_get_prop_int(w, SEL, -1);
-        /* A list in name order goes a row a tick until its letters start, as Cover Flow a cover a
-         * tick: no speed-up first, so the big letter shows only with the letters, and stays with
-         * them while the finger does. Other lists keep the rows' speed-up and its letter. */
-        int named = id >= 0 && letters_list(&g_menu, now);
+        /* No letter over an album's songs: stock shows them in these two pages alone, in disc and
+         * track order (comparator 0x4fb880). Tested here, as at paint the top may already be the
+         * page a Return brings back. */
+        const char *page = widget_get_prop_str(top, "name", "");
+        int songs = !tk_strcmp(page, "albuminfo_page") || !tk_strcmp(page, "playerjumpinfo_page");
+        /* Fork-only: a list in name order goes a row a tick until its letters start, as Cover Flow
+         * a cover a tick: no speed-up first, so the big letter shows only with the letters, and
+         * stays with them while the finger does. Other lists keep the rows' speed-up and its
+         * letter. */
+        int named = id >= 0 && !songs && letters_list(&g_menu, now);
         if (named && !ll.on) step = 1;
-        if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
+        if (step > 1 && !songs) rearm(&st.letter_timer, letter_expire, LETTER_MS);
         int next = clamp_step(id < 0 ? (cur >= 0 ? g_menu.id[cur] : 0) : id, g_menu.rows - 1,
                               id < 0 ? 0 : dir * step);
         int jump = named ? letter_tick(&g_menu, id, dir, now) : -2;

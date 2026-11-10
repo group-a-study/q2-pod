@@ -13,7 +13,7 @@ import pytest
 
 import host
 from conftest import NAVIGATION_SOURCE, O, Deques, claim, ui_name
-from test_coverflow import Home  # coverflow.c's home struct
+from test_coverflow import COVERS, TRACKS, Home, Rec, cf, deque_of  # coverflow.c's home struct, its page and an album
 
 W_PARENT, W_EMITTER = O['W_PARENT'], O['W_EMITTER']
 KEY_NEXT, KEY_PREV, KEY_CENTER = O['KEY_NEXT'], O['KEY_PREV'], O['KEY_CENTER']
@@ -1554,6 +1554,42 @@ def test_homes_library_pane_shows_no_letter(fw, ui):
     page, canvas = spun(fw, ui, titles(200))
     page.view.props[b'name'] = b'scroll_view_localmusic'
     assert letter(fw, page, canvas) == []
+
+
+def test_coverflows_album_tracks_show_no_letter(fw, ui):
+    page = Page(ui, titles(200), name='coverflow_page')
+    album = [Rec('Abbey Road', artist='The Beatles')]  # the open album: its key is the track list's scope
+    deque_of(fw, album)
+    flow = cf(fw)
+    flow.page, flow.albums, flow.tracks, flow.album, flow.screen = page.win.at, 0x5000, 0x5100, 0, TRACKS
+    paint(fw, page)
+    key(fw, ui, KEY_NEXT, ui.now + SLOW)
+    spin(fw, ui, KEY_NEXT, 6, 100)
+    canvas = Canvas(fw)
+    assert letter(fw, page, canvas) == []  # its tracks are in album order (disc and track), not A to Z
+    flow.screen = COVERS
+    assert letter(fw, page, canvas) == ['S']  # the same spin with no album open keeps its letter
+
+
+@pytest.mark.parametrize('name, cls', [('albuminfo_page', 0xff10), ('albuminfo_page', 0xff11),
+                                       ('playerjumpinfo_page', 0xff10)])
+def test_an_albums_songs_in_the_library_show_no_letter(fw, ui, name, cls):
+    fw.var('fw_ctx_g_class_type', C.c_int).value = cls
+    page, canvas = spun(fw, ui, titles(200), name)
+    assert letter(fw, page, canvas) == []  # in disc and track order, not A to Z
+    Page(ui, titles(200), name='album_page')  # Return: the page behind is the top while the songs slide out
+    assert letter(fw, page, canvas) == []
+
+
+@pytest.mark.parametrize('name, cls', [
+    ('album_page', O['CLASS_ALBUMS']),  # the Albums list a Return brings back
+    ('artistinfo_page', 0xff11),  # Go to Artist from an album, one of its albums opened, Return: stock reloads nothing
+])
+def test_a_name_ordered_library_list_keeps_its_letter(fw, ui, name, cls):
+    fw.var('fw_ctx_g_class_type', C.c_int).value = cls
+    C.c_int.from_buffer(fw.var('fw_ctx_g_local_classinfo_save', C.c_ubyte * 912)).value = cls
+    page, canvas = spun(fw, ui, titles(200), name)
+    assert letter(fw, page, canvas) == ['S']
 
 
 # The iPod `>` on rows that open another list.

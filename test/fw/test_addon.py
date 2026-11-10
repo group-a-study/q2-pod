@@ -9,6 +9,7 @@ import pytest
 
 import host
 from conftest import O, Deques, Game, block, high_halves, libc, text
+from test_coverflow import png  # an icon's header
 from test_netupdate import JOB_INSTALL, Sh  # test_netupdate.py keeps netupdate.c's App Store mirror
 from test_radio import Rd  # test_radio.py keeps the mirror
 
@@ -280,7 +281,7 @@ def card(fw, **apps):
         names.append(b'.' + name.encode())
         files[f'/mnt/mmc/.{name}/q2app'.encode()] = manifest
         files[f'/mnt/mmc/.{name}/q2-{name}'.encode()] = b'ELF'
-        files.update({f'/mnt/mmc/.{name}/{e}'.encode(): b'' for e in extra})
+        files.update({f'/mnt/mmc/.{name}/{e}'.encode(): png(40, 40) if e.endswith('.png') else b'' for e in extra})
     return World(fw, files, {b'/mnt/mmc': names})
 
 
@@ -343,6 +344,23 @@ def test_the_longest_ids_icon_fits(fw):
     card(fw, **{i: (b'x=1\n', ['icon-40.png'])})
     scan(fw)
     assert ap(fw).a[0].icon == f'file:///mnt/mmc/.{i}/icon-40.png'.encode()
+
+
+@pytest.mark.parametrize('w,h,shown', [(40, 40, 1), (128, 128, 1), (129, 40, 0), (40, 129, 0), (4000, 4000, 0), (0, 0, 0)])
+def test_an_icon_over_art_max_is_the_shared_one(fw, w, h, shown):
+    world = card(fw, a=(b'x=1\n', ['icon-40.png']))
+    world.files[b'/mnt/mmc/.a/icon-40.png'] = png(w, h)
+    scan(fw)
+    assert ap(fw).a[0].icon == (b'file:///mnt/mmc/.a/icon-40.png' if shown else b'stream_app')
+
+
+def test_a_too_big_row_icon_falls_back_to_the_other_then_the_shared_one(fw):
+    world = card(fw, a=(b'x=1\n', ['icon-40.png', 'icon.png']), b=(b'x=1\n', ['icon.png']), c=(b'x=1\n', ['icon-40.png', 'icon.png']))
+    world.files[b'/mnt/mmc/.a/icon-40.png'] = png(4000, 4000)
+    world.files[b'/mnt/mmc/.b/icon.png'] = b'not a picture'
+    world.files[b'/mnt/mmc/.c/icon.png'] = png(4000, 4000)
+    scan(fw)
+    assert [ap(fw).a[i].icon for i in range(3)] == [b'file:///mnt/mmc/.a/icon.png', b'stream_app', b'file:///mnt/mmc/.c/icon-40.png']
 
 
 def test_a_slot_keeps_its_app_across_scans_and_an_app_gone_goes_from_the_list(fw):
@@ -3237,6 +3255,16 @@ def test_no_code_says_why(fw, raw, say):
 def test_a_code_longer_than_its_buffer_is_cut_and_never_shown(fw):
     q = Qr(fw, qr_state(size=61, code=b'f' * (16 * 61)))
     assert not q.code and len(C.string_at(q.qp.hex)) < QR_HEX
+
+
+@pytest.mark.parametrize('state', [
+    qr_state(size=49, code=b'f' * (13 * 49)).replace(b'hold=1\n', b'') + b'hold=1\n',  # after the longest qr=
+    b'note=' + b'n' * 120 + b'\nhold=1\n',                                              # after a long note=
+])
+def test_hold_anywhere_in_the_status_file_holds(fw, state):
+    world, a = running(fw, state)
+    addon_poll(fw, world)
+    assert a.hold == 1 and [c[1][:3] for c in fw.calls('reset_poweroptions_timer')] == [(1, 1, 0)]
 
 
 def test_the_same_file_again_writes_nothing(fw):

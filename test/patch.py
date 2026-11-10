@@ -16020,8 +16020,8 @@ class AppMachine(BrowseMachine):
 m=AppMachine(); card_app(m,'filebrowser','name=File Browser\nqr=1\n'); card_app(m,'deezer','name=Deezer\n')
 card_app(m,'gone','name=Gone\n'); m.files.pop('/mnt/mmc/.gone/q2-gone'); card_app(m,'Bad_Id','name=Bad\n')
 m.tree['/mnt/mmc']+=[('.spotify',4),('Music',4)]; m.files['/mnt/mmc/.spotify/librespot']=bytearray()
-# Its own icon when it ships one: the rows' 40 px, else the 52 px one.
-for f in ('/mnt/mmc/.deezer/icon.png','/mnt/mmc/.deezer/icon-40.png','/mnt/mmc/.soulseek/icon.png'): m.files[f]=bytearray()
+# Its own icon when it ships one: the rows' 40 px, else the 52 px one (addon_scan reads each one's size).
+for f in ('/mnt/mmc/.deezer/icon.png','/mnt/mmc/.deezer/icon-40.png','/mnt/mmc/.soulseek/icon.png'): m.files[f]=bytearray(png_head(40,40))
 rows=stream_rows(m)
 assert list(rows)==['Spotify','Deezer','File Browser','Soulseek','Tidal Downloads','Internet Radio','AirPlay','Configuration'],list(rows)
 icons={'Deezer':'file:///mnt/mmc/.deezer/icon-40.png',
@@ -16065,7 +16065,7 @@ def stream_shows(m):  # what the pane shows: the bitmap's name, its source and s
     # the boxes in the panel's own place: the art's box is its cover's fit while it stays still (fork-only)
     dx,dy=signed(m.get(art+O['W_X']))-O['HOME_SPLIT_W'],signed(m.get(art+O['W_Y']))
     return m.image_loads,[(d[2],(d[3][0]+dx,d[3][1]+dy,*d[3][2:])) for d in m.draws],[l['text'] for l in m.letters]
-m=split_stream(); card_app(m,'deezer','name=A long name for a card app here\n'); m.files['/mnt/mmc/.deezer/icon.png']=bytearray()
+m=split_stream(); card_app(m,'deezer','name=A long name for a card app here\n'); m.files['/mnt/mmc/.deezer/icon.png']=bytearray(png_head(52,52))
 lst,sets,slist=[named(m,m.top,n) for n in ('list_view_home','list_view_homeset','list_view_homestream')]; sview=named(m,m.top,'scroll_view_streamsset'); art=named(m,m.top,'img_homeart')
 assert not m.nodes[slist]['visible'] and m.nodes[slist]['sensitive']==0
 ltitle=m.node('hscroll_label','label_title'); lbar=classic_light_bar(m,ltitle)
@@ -17638,11 +17638,11 @@ m=ShelfMachine({LIST:bytearray((ROOT/'sources.list').read_bytes()),SPOT_TAG:byte
                 '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
 m.rockbox_mode=0; m.wifi=-1; apps_open(m)
 BLANK=m.labels()[2]; assert BLANK in ('',' ')  # Check for Updates' blank detail: ' ' under a theme's separators
-assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install','Apple Music','Install','AirPlay','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
+assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
 m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; apps_open(m)
-assert m.labels()==['App Store','Check for Updates','Checking…','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install','Apple Music','Install','AirPlay','Install']
+assert m.labels()==['App Store','Check for Updates','Checking…','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']
 m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
-assert m.opts[10002]=='https://api.github.com/repos/group-a-study/q2-airplay/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of thirteen
+assert m.opts[10002]=='https://api.github.com/repos/DiamondBond/q2-groovebox/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of eleven
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[20108]
 assert m.labels()[8]=='Update' and m.labels()[2]==BLANK and '/tmp/q2-shelf.json' not in m.files  # q2-v1.8 against the latest q2-v1.9
 assert m.toasts[-1][3]=='1 app can be updated'; passed()  # the opening check's end, the page on top
@@ -17663,7 +17663,7 @@ m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==5
 m.row(2); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==5 and m.toasts[-1][3]=='Stopped checking for updates'; passed()
 m.close(); m.rockbox_mode=0; m.dirs.pop('/mnt/mmc/.spotify'); m.reply=(ROOT/'test/shelf/q2-rockbox.json').read_bytes()
 toasts=len(m.toasts); apps_open(m); shelf_job(m); assert len(m.toasts)==toasts  # the opening check: nothing to update, nothing said
-assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install','Apple Music','Install','AirPlay','Install']  # not stopped: checked again
+assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']  # not stopped: checked again
 m.row(1); assert m.labels()[4]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==6
 m.row(1); assert len(m.threads)==7 and m.labels()[4]=='Checking…'; m.row(1); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
 m.free=10<<20; m.row(1); m.row(1); shelf_job(m)  # the zip (13018581 bytes) and 64 MB left over
@@ -17677,7 +17677,7 @@ assert m.moves[-2:]==['/mnt/mmc/.q2/apps/rockbox.files','/mnt/mmc/.q2/apps/rockb
 assert m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2' and m.files['/mnt/mmc/.rockbox/fonts/a b.fnt']==b'f'
 assert m.files['/mnt/mmc/.q2/apps/rockbox.files']==b'.rockbox/rockbox\n.rockbox/codecs/flac.codec\n.rockbox/fonts/a b.fnt\n'
 assert not [f for f in m.files if '.q2/staging' in f] and 'sync' in m.systems; passed()
-assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install','Apple Music','Install','AirPlay','Install']; passed()  # the rows built again
+assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']; passed()  # the rows built again
 m.listing='        1  10-06-2026 13:18   .rockbox/../../x\n'; m.files.pop('/mnt/mmc/.q2/apps/rockbox.tag'); m.row(1); shelf_job(m)
 assert m.toasts[-1][3]=='The download is not a usable app' and m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2'; passed()
 m.close(); passed()
@@ -17709,7 +17709,8 @@ class ResumeMachine(QueueMachine):
         self.files={} if files is None else files; self.open={}; self.play=(0,0); self.seeks=[]; self.opens=self.renames=0
         self.handlers[sleep_hook+12]='stock_sleep'
         for n in ('fopen@GLIBC_2.2','fread@GLIBC_2.0','fwrite@GLIBC_2.0','fclose@GLIBC_2.2','rename@GLIBC_2.0',
-                  'access@GLIBC_2.0','time@GLIBC_2.0','player_playtime_and_length'): self.handlers[syms[n]]='r:'+n
+                  'access@GLIBC_2.0','time@GLIBC_2.0','player_playtime_and_length',
+                  'fseek@GLIBC_2.0','ftell@GLIBC_2.0'): self.handlers[syms[n]]='r:'+n  # scrobble_append's checks
         self.handlers[payload_syms['stock_seek_time_trampoline']]='r:player_seek_time'
         self.epoch=1700000000
         self.mock('tk_snprintf','strstr@GLIBC_2.0')
@@ -17727,6 +17728,8 @@ class ResumeMachine(QueueMachine):
         elif name=='fread':
             f=self.open[d]; data=f[3][f[2]:f[2]+b*c]; f[2]+=len(data); self.u.mem_write(a,data); ret=len(data)//b
         elif name=='fwrite': self.open[d][3]+=bytes(self.u.mem_read(a,b*c)); ret=c
+        elif name=='fseek': f=self.open[a]; f[2]=signed(b)+(0,f[2],len(f[3]))[c]
+        elif name=='ftell': ret=self.open[a][2]
         elif name=='fclose':
             path,mode,_,data=self.open.pop(a)
             if mode in ('wb','ab'): self.files[path]=data

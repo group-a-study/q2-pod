@@ -1376,6 +1376,13 @@ class Card(Files):
             self.open[handle][2] = self.files.get(cstr(path), b'')
         return handle
 
+    def fseek(self, f, offset, whence, *_):
+        state = self.open[f]
+        if whence == 2 and state[2] is not None:  # an append's end is what it holds, a new file's too
+            state[1] = C.c_int(offset).value + len(state[2])
+            return 0
+        return super().fseek(f, offset, whence)
+
 
 class Hold:
     """A Play/Pause hold from ringnav_keylong to the menu's rows: Play held in stock's input status, the hold's
@@ -2427,6 +2434,21 @@ def test_half_a_song_heard_counts_a_play_and_scrobbles_it(player, recs):
     log = player.card.files['/mnt/mmc/.scrobbler.log'].decode()
     assert log.startswith('#AUDIOSCROBBLER/1.1\n#TZ/UTC\n') and log.count('#AUDIOSCROBBLER') == 1
     assert log.splitlines()[-1] == f'The Beatles\tHelp!\tHelp!\t1\t200\tL\t{1700000000 - 100}\t'  # started: now less heard
+
+
+@pytest.mark.parametrize('takes', (True, False))
+def test_only_a_listen_the_card_takes_counts_for_an_upload(fw, player, recs, takes):
+    log = '/mnt/mmc/.scrobbler.log'
+
+    def fclose(f, *_):  # a full card: the log's close fails
+        refused = not takes and player.card.open[f][0] == log
+        return player.card.fclose(f) or -refused
+    fw.mock('fw_fclose', fclose)
+    player.play([recs(path='/mnt/mmc/Music/a.flac', artist='A')], total=200)
+    for s in range(0, 102):
+        player.poll(s)
+    assert PLAYS_FILE in player.card.files and (log in player.card.files) == takes
+    assert fw.var('scrobble_ui__sa', C.c_uint).value == takes  # pending, the struct's first field
 
 
 def test_a_seek_is_not_heard(player, recs):

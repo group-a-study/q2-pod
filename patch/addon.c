@@ -10,7 +10,7 @@
  *   q2-<id>  the app;
  *   icon-40.png, icon.png
  *            its Streaming row's icon, 40 px (SET_ICON), drawn 1:1, else 52 px, scaled to fit;
- *            without them, the shared stream_app.
+ *            one over ART_MAX px either way counts as none; without them, the shared stream_app.
  * Streaming lists those on the card (home.c ringnav_stream). A row starts its app and opens
  * addon_page, a list the app draws over Q2SPOT/1 (docs/librespot.md) on /tmp/q2-<id>.browse.sock:
  * each row's kind says what a press does (a local row plays a song or folder from the card,
@@ -77,6 +77,7 @@
 #define QR_PX 186        /* the code's white plate: 5 px modules up to a 33-module code */
 #define QR_COL 214       /* the text beside it */
 #define QR_LIGHT_PX 166  /* Classic's plate: 5 px modules up to 29, 4 up to 37 */
+#define QR_RAW 1536      /* an app's status file as far as it is read (poll_one, qr_refresh) */
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
 /* This firmware's card-app features, space-separated; a feature adds its word. */
@@ -87,7 +88,7 @@
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
 #define ART_ROW_H 78 /* a row with a cover: stock Tidal's list_view default_item_height */
 #define ART_PX 64    /* its cover, square, centred in the row's height */
-#define ART_MAX 128  /* the most a cover's file may be, either way; larger counts as none */
+#define ART_MAX 128  /* the most a cover's or an icon's file may be, either way; larger is none */
 #define ART_KEEP 24  /* the rows' covers kept decoded around the list's scroll position */
 #define ART_URL (APP_ID + 32) /* art_file's file:// URL, its NUL included */
 
@@ -151,12 +152,15 @@ int addon_scan(void) {
         a->hidden = number(raw, "hidden") == 1;
         a->present = !access(a->bin, 0);
         /* the row's size first, the other scaled to fit (navigation.c set_child), else stream_app
-         */
+         * (one over ART_MAX px either way, or whose size can't be read, counts as none: demo
+         * decodes it whole) */
         static const char *const icons[2] = { "icon-40.png", "icon.png" };
         tk_snprintf(a->icon, sizeof a->icon, "stream_app");
         for (int i = 1; i >= 0; --i) {
+            int w = 0, h = 0;
             tk_snprintf(path, sizeof path, CARD "/%s/%s", e->d_name, icons[i]);
-            if (!access(path, 0)) tk_snprintf(a->icon, sizeof a->icon, "file://%s", path);
+            if (picture_size(path, &w, &h) && w && h && w <= ART_MAX && h <= ART_MAX)
+                tk_snprintf(a->icon, sizeof a->icon, "file://%s", path);
         }
     }
     if (d) closedir(d);
@@ -625,8 +629,11 @@ static void poll_one(app_t *a) {
             a->relaunch = 0, launch(a);
         return;
     }
-    char raw[64 + 16];
-    state_read(a->state, raw, sizeof raw); /* addr= and hold= sort before the long qr= */
+    /* hold= may come anywhere, after the long qr= too. ponytail: only the first QR_RAW - 2 bytes
+     * (1,534) are read, so a hold= further on reads as 0; the largest code the QR page draws
+     * (49 modules, QR_HEX) takes about 640. A longer file needs a larger buffer here. */
+    char raw[QR_RAW];
+    state_read(a->state, raw, sizeof raw);
     a->hold = number(raw, "hold") == 1;
     if (a->hold) reset_poweroptions_timer(1, 1, 0); /* standby, auto power-off; not the screen's */
     stream_poll(a);
@@ -1951,7 +1958,6 @@ int addon_hold(void *w) {
 /* The QR code page (qrcode_page): an app's status file's qr (qrsize rows of hex, the leftmost
  * module the high bit), drawn on a white plate, beside its address (addr), PIN (pin) and note,
  * read again every second. Without an address (no Wi-Fi) or a file (not running), it says so. */
-#define QR_RAW 1536
 #define QR_HEX 640
 static struct {
     void *page, *qr, *col, *msg, *addr, *pin, *note, *say, *sub;
