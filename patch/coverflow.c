@@ -3261,6 +3261,9 @@ const char *now_tag(void *r, int field) {
 }
 
 #define HOME_PW (375 - HOME_SPLIT_W) /* Split's art panel, client_h() high */
+/* Split's art stays still, as it was before upstream's pan (fork-only: the user keeps the still art).
+ * 1 brings back the pan: the cover zoomed DRIFT_ZOOM_PCT, creeping across its panel (home_drift). */
+#define HOME_PAN 0
 /* iPod Home (docs/ipod.md): the playing track's art beside the list. */
 static struct {
     void *win, *art, *list, *sets; /* sets: the Settings list, in the list's place while open */
@@ -3998,12 +4001,16 @@ void coverflow_home_art(void *top) {
     /* the player writes every track's cover to the same file: drop AWTK's cached bitmap of the
      * last track's, or the new track shows it (Enlarged Art does the same) */
     if (cover) image_manager_unload_bitmap_by_name(image_manager(), cover);
-    int pans = cover ? home_tex(cover) : -1;
-    if (pans < 0 && r) pans = home_tex(url), src = url;
+    int pans = -1, shown = 0;
+    if (HOME_PAN) {
+        pans = cover ? home_tex(cover) : -1;
+        if (pans < 0 && r) pans = home_tex(url), src = url;
+        shown = pans == 0 && image_show(home.art, src, size);
+    } else /* still (fork-only): the player's cover, else Cover Flow's of the album */
+        shown = (cover && image_show(home.art, cover, size)) || (r && image_show(home.art, url, size));
     if (pans > 0) {
         image_base_set_image(home.art, ""); /* home_paint draws it */
     } else {
-        int shown = pans == 0 && image_show(home.art, src, size);
         if (!shown && theme()->home_pane[ipod_light()].n) {
             image_base_set_image(home.art, ""); /* home_pane_paint draws it, the whole panel */
             home.pane = 1;
