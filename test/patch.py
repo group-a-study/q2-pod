@@ -1120,7 +1120,7 @@ def battery_checks():
         b.advance(O['CODEC_STEP_MS'] if steps else 1); steps.append((alpha(b,w),b.nodes[w['img_bt']]['image']))
     n=O['CODEC_STEPS']
     assert steps==[(255*abs(n-k)//n,'bar_ldac' if k<n else O_GLYPH) for k in range(1,2*n+1)] and not b.timers, steps
-    paint(); assert shown(b,w)==['view_battery'] and b.get(w['view_battery']+O['W_W'])==O['BATT_PCT_W']; passed()
+    paint(); assert shown(b,w)==['view_battery'] and b.get(w['view_battery']+O['W_W'])==O['BATT_PCT_LEAD']+O['BATT_PCT_W']; passed()
     # Stock's next tick sets the badge again: the glyph goes straight back, with no new fade.
     b.nodes[w['img_bt']]['image']='bar_ldac'; paint()
     assert b.nodes[w['img_bt']]['image']==O_GLYPH and not b.timers and shown(b,w)==['view_battery']; passed()
@@ -1163,14 +1163,15 @@ def battery_checks():
         paint(); paint(w['view_battery']); paint(); b.bands=[]; paint(w['view_battery'])
         assert b.bands[-1][2:5]==((O['BATT_BODY_W']-4)*50//100,O['BATT_BODY_H']-4,color_t(fill)),b.bands[-1]
     passed()
-    # Percent: the digits alone, in a slot their width, the charge colour, after the first paint.
+    # Percent: the digits alone, in a slot their width, the charge colour, after the first paint; BATT_PCT_LEAD of the slot
+    # first, their room from Wi-Fi (fork-only).
     b,bar,w,paint=battery_bar(1); b.nodes[w['img_bt']]['visible']=0
     for image,value,rgb in (('bar_battery',100,0xffffff),('bar_battery',88,0xffffff),('bar_charge',7,O['BATT_CHARGE_RGB'])):
         b.nodes[w['img_battery']]['image']=image; b.nodes[w['label_battery']]['text']=f'{value}%'
         paint(); paint(w['view_battery']); paint(); before=lcd(); bands,letters=slot()
-        pct=10*len(str(value))+10
-        assert b.get(w['view_battery']+O['W_W'])==pct and not bands
-        assert [(l['text'],l['rect'],l['color']) for l in letters]==[(f'{value}%',(0,0,pct,30),color_t(rgb))]
+        pct,lead=10*len(str(value))+10,O['BATT_PCT_LEAD']
+        assert b.get(w['view_battery']+O['W_W'])==lead+pct and not bands
+        assert [(l['text'],l['rect'],l['color']) for l in letters]==[(f'{value}%',(lead,0,pct,30),color_t(rgb))]
 
     # Percent Inside: compact rounded body and dark digits, including 100, in every state.
     for theme in (0,2):
@@ -1212,7 +1213,7 @@ def battery_checks():
                 b.nodes[w['label_battery']]['text']='100%'
                 paint()
                 assert shown(b,w)==['view_battery']
-                assert b.get(w['view_battery']+O['W_W'])==(O['BATT_PCT_W'] if mode==1 else (O['BATT_INSIDE_W'] if mode==3 else O['BATT_BODY_W'])+O['BATT_NUB_W']+(O['BATT_GAP']+O['BATT_PCT_W'] if mode==2 else 0))
+                assert b.get(w['view_battery']+O['W_W'])==(O['BATT_PCT_LEAD']+O['BATT_PCT_W'] if mode==1 else (O['BATT_INSIDE_W'] if mode==3 else O['BATT_BODY_W'])+O['BATT_NUB_W']+(O['BATT_GAP']+O['BATT_PCT_W'] if mode==2 else 0))
     passed()
     # The slot takes the bar's height in the set theme_boot wrote (geom_vals[st.geom][V_BAR], 30 under SET0): 26 poked into SET0's row sizes it 26, then 30 again.
     b,bar,w,paint=battery_bar(1); assert b.u.mem_read(payload_syms['geom_vals'],2)==struct.pack('<h',30)

@@ -3835,10 +3835,11 @@ static void bar_sync(void *bar) {
         classic_light = B->painter[PAINT_BATTERY] == BATT_CLASSIC_LIGHT,
         body =
             classic_light ? bar_geom_val(V_BATT_W) + 1 : BATT_BODY_W, /* its soft edge's column */
-        inside = classic_light ? body : BATT_INSIDE_W;
+        inside = classic_light ? body : BATT_INSIDE_W,
+        lead = classic_light ? 0 : BATT_PCT_LEAD; /* the percentage alone's room from Wi-Fi */
     int mode = st.battery;
     if (mode) {
-        int reach = mode == 1   ? BATT_PCT_W
+        int reach = mode == 1   ? BATT_PCT_W + lead
                     : mode == 3 ? inside + BATT_NUB_W
                                 : body + BATT_NUB_W + BATT_GAP + BATT_PCT_W;
         if (widget_get_visible(st.bar_wifi)) reach += I(st.bar_wifi, W_W) + STATUS_GAP;
@@ -3884,7 +3885,7 @@ static void bar_sync(void *bar) {
     }
     int pct = pct_width(key >> 3);
     int width = mode == 1
-                    ? pct
+                    ? lead + pct
                     : (mode == 3 ? inside : body) + BATT_NUB_W + (mode == 2 ? BATT_GAP + pct : 0);
     int resized = I(st.bar_slot, W_W) != width;
     widget_resize(st.bar_slot, width, geom_val(V_BAR));
@@ -4021,7 +4022,8 @@ static void paint_battery(void *w, void *canvas) {
         st.pct_sign = (int)(canvas_measure_text(canvas, &c, 1) + 0.5f);
     }
     if (st.batt_mode == 1) {
-        rect_t r = { 0, 0, I(w, W_W), I(w, W_H) };
+        int lead = classic_light ? 0 : BATT_PCT_LEAD; /* bar_sync's room from Wi-Fi */
+        rect_t r = { lead, 0, I(w, W_W) - lead, I(w, W_H) };
         draw_centred(canvas, s, n, &r, px, color);
         return;
     }
