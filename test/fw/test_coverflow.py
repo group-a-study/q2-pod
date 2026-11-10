@@ -3355,3 +3355,25 @@ def test_the_panel_s_paper_header_shadow_and_border(fw, light):
     assert [r[1:] for r in border] == [(39, 8, BACK_W + 2, 1), (39, 9 + 285, BACK_W + 2, 1), (39, 9, 1, 285), (40 + BACK_W, 9, 1, 285)]
     assert len({r[0] for r in border}) == 1 and border[0][0] >> 24 == 255  # one opaque colour all round
     assert (border[0][0] & 255 > 0x80) == bool(light)
+
+
+# Fork-only: Classic's Now Playing art upright (coverflow_slant passes NP_ART_FAR, the far edge as tall as the near), a
+# cover red over blue on white paper: every column the cover's whole height, red at the top and blue at its foot, then
+# the mirror, blue first, fading to the paper; the turned art (SLANT_FAR) starts its far column below the top.
+def test_classic_art_stands_upright_over_its_reflection(fw):
+    frame = fw.fn('coverflow__slant_frame', None, C.c_void_p, C.c_int, C.c_int, C.c_int, C.c_void_p, C.c_int, C.c_uint, C.c_int)
+    side, rows, t = 40, 50, 80
+    tex = (C.c_uint * (t * t))(*([0xff0000ff] * (t * t // 2) + [0xffff0000] * (t * t // 2)))  # RGBA bytes: red, then blue
+    def draw(far):
+        out = (C.c_uint * (side * rows))()
+        frame(out, side, side, rows, tex, t, 255, far)
+        return out
+    assert O['NP_ART_FAR'] == 256
+    up = draw(O['NP_ART_FAR'])
+    red, blue = (lambda p: p & 255 > 200 and p >> 16 & 255 < 40), (lambda p: p >> 16 & 255 > 200 and p & 255 < 40)
+    for x in (0, side // 2, side - 1):
+        assert red(up[x]) and blue(up[(side - 1) * side + x]), x  # top and foot of every column
+        assert blue(up[side * side + x]) or (up[side * side + x] >> 16 & 255) > (up[side * side + x] & 255), x  # the mirror
+    assert up[(rows - 1) * side] == 0xffffffff  # faded to the paper
+    turned = draw(O['SLANT_FAR'])
+    assert turned[side - 1] == 0xffffffff and red(up[side - 1])  # the turn's far column starts lower; upright's doesn't

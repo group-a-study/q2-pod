@@ -152,6 +152,9 @@
  * layout, NP_IPOD_TIME_W2 "-59:59" and NP_IPOD_TIME_W "-9:59:59" (tools/ipod.py measures them).
  * The boxes' outer edges stay; the bar takes what they leave. */
 #define SLANT_FAR 224
+/* Fork-only: Classic's Now Playing art upright over its reflection (coverflow_slant), the user's choice;
+ * SLANT_FAR turns it as an iPod classic's. */
+#define NP_ART_FAR 256
 #define SLANT_REFLECT_A 84
 #define SLANT_REFLECT_PCT 22
 #define NP_BAR_IPOD 20

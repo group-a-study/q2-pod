@@ -3587,16 +3587,17 @@ HOT unsigned bilerp(const unsigned *tex, int t, float u, float v) {
  * (pitch pixels a row), side wide and rows high, from tex, the cover box filtered to t x t, twice
  * the art: each pixel is two half columns of two bilinear taps, the slanted edges by coverage.
  * test/coverflow.py */
-void slant_render(unsigned *d, int pitch, int side, int rows, const unsigned *tex, int t,
-                  unsigned paper) {
+static void slant_frame(unsigned *d, int pitch, int side, int rows, const unsigned *tex, int t,
+                        unsigned paper, int far256) {
     unsigned bg = 0xff000000u | paper * 0x010101u;
-    float near = (float)side, far = side * SLANT_FAR / 256.f;
+    float near = (float)side, far = side * far256 / 256.f;
     for (int x = 0; x < side; ++x)
         for (int half = 0; half < 2; ++half) {
             /* u: the texture is linear in depth, so in 1 / h */
             float c = x + .25f + .5f * half, h = near - (near - far) * c / near,
                   top = (near - h) / 2, bot = top + h, fade = h * SLANT_REFLECT_PCT / 100,
-                  u = t * (near - h) * far / (h * (near - far)), k = t / h;
+                  u = far < near ? t * (near - h) * far / (h * (near - far)) : t * c / near,
+                  k = t / h; /* far as near: the cover upright, u along it */
             for (int y = 0; y < rows; ++y) {
                 /* the pixel's shares of the cover, the reflection and the paper, of 256 */
                 unsigned cover = bg, mirror = bg, w[4] = { 0, 0, 256, 0 };
@@ -3618,6 +3619,12 @@ void slant_render(unsigned *d, int pitch, int side, int rows, const unsigned *te
                 *px = half ? lerp(*px, out, 128) : out;
             }
         }
+}
+/* Fork-only: coverflow_slant passes NP_ART_FAR, as tall as the near edge, so Classic's art stands
+ * upright over the same reflection; slant_render keeps the turn (SLANT_FAR). */
+void slant_render(unsigned *d, int pitch, int side, int rows, const unsigned *tex, int t,
+                  unsigned paper) {
+    slant_frame(d, pitch, side, rows, tex, t, paper, SLANT_FAR);
 }
 
 /* Classic's art over stock's flat cover, on the page's grey paper (a byte): slant.frame, rendered
@@ -3668,7 +3675,8 @@ void coverflow_slant(void *w, void *canvas, unsigned paper) {
         for (int i = 0; i < t * t; ++i) tex[i] = 0xff000000u | paper * 0x010101u;
         box_filter(data, stride, at[format], bw, bh, tex + (t - th) / 2 * t + (t - tw) / 2, t, tw,
                    th, paper);
-        slant_render(d, (int)(bitmap_get_line_length(slant.frame) / 4), side, rows, tex, t, paper);
+        slant_frame(d, (int)(bitmap_get_line_length(slant.frame) / 4), side, rows, tex, t, paper,
+                    NP_ART_FAR);
         bitmap_unlock_buffer(slant.frame);
         slant.key = key;
     }
