@@ -15954,7 +15954,9 @@ def stream_open(m):
 def stream_shows(m):  # what the pane shows: the bitmap's name, its source and screen boxes, the caption's text and px
     art=named(m,m.top,'img_homeart'); m.letters=[]; m.calls=[]; m.draws=[]; m.image_loads=[]
     m.call(address=payload_syms['coverflow_home_clip'],args=(art,m.canvas,0,0),gap=0)
-    return m.image_loads,[d[2:4] for d in m.draws],[l['text'] for l in m.letters]
+    # the boxes in the panel's own place: the art's box is its cover's fit while it stays still (fork-only)
+    dx,dy=signed(m.get(art+O['W_X']))-O['HOME_SPLIT_W'],signed(m.get(art+O['W_Y']))
+    return m.image_loads,[(d[2],(d[3][0]+dx,d[3][1]+dy,*d[3][2:])) for d in m.draws],[l['text'] for l in m.letters]
 m=split_stream(); card_app(m,'deezer','name=A long name for a card app here\n'); m.files['/mnt/mmc/.deezer/icon.png']=bytearray()
 lst,sets,slist=[named(m,m.top,n) for n in ('list_view_home','list_view_homeset','list_view_homestream')]; sview=named(m,m.top,'scroll_view_streamsset'); art=named(m,m.top,'img_homeart')
 assert not m.nodes[slist]['visible'] and m.nodes[slist]['sensitive']==0
