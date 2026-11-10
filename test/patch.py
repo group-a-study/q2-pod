@@ -5925,9 +5925,9 @@ LETTER_NAMES=[f'{c}{i}' for c in 'ABCDEFGH' for i in range(5)]; LETTER_NAMES[15]
 class LetterMachine(Machine):
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
-        if name in ('deque_at','deque_size') and getattr(self,'records',None) is not None:
-            a,b=[u.reg_read(r) for r in REGS[:2]]
-            self.calls.append((name,a,b)); self.returns(self.records[b] if name=='deque_at' else len(self.records))
+        if name in ('deque_at','deque_size') and getattr(self,'decks',None) is not None:
+            a,b=[u.reg_read(r) for r in REGS[:2]]; recs=self.decks.get(a,[])
+            self.calls.append((name,a,b)); self.returns(recs[b] if name=='deque_at' else len(recs))
         else: super().hook(u,address,size,unused)
 def letters_machine(virtual,names=LETTER_NAMES):
     m=LetterMachine(); n=len(names)
@@ -5935,7 +5935,7 @@ def letters_machine(virtual,names=LETTER_NAMES):
         w,rs,es=m.table_page(rebind=True); m.word(w+O['TABLE_ROWS'],n)
         m.records=[]; m.mock('deque_at','deque_size')
         for t in names: r=m.alloc(0x60); m.word(r+O['REC_TITLE'],m.string(t)); m.word(r+O['REC_NAME'],m.string(t+'.flac')); m.records.append(r)
-        m.word(syms['p_deque_showlist'],m.alloc(0x20))
+        h=m.alloc(0x20); m.decks={h:m.records}; m.word(syms['p_deque_showlist'],h)
         def rebind(a,offset):
             m.bind(rs,offset)
             for r,e in zip(rs,es): i=m.get(r+O['ROW_INDEX']); m.nodes[e]['text']=names[i] if i<len(names) else ''
@@ -5943,7 +5943,7 @@ def letters_machine(virtual,names=LETTER_NAMES):
     else:
         w,es=m.page_list(n,extent=n*48,name='allmusic_page'); rs=es
         for e,t in zip(es,names): m.nodes[e]['text']=t
-    m.paint(w,gap=0); return m,w
+    m.es=es; m.paint(w,gap=0); return m,w
 def first_of(names,i,dir=1):  # the expected landing: the next letter's first row, or the one before's
     key=lambda t: (t[4:] if t.startswith('The ') else t)[0].upper()
     c=key(names[i]); j=i+dir
@@ -5981,6 +5981,59 @@ for virtual in (False,True):
     assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==15; passed()  # turned back: D's first
     m.word(payload_syms['wheel_held'],0); m.advance(O['LETTER_MS']); m.paint(w,gap=0); assert not m.letters; passed()  # lifted
     assert m.call(gap=300)==11 and m.selected(w)==16; passed()  # a row a tick again
+# Read as the list sorts (fork-only): an Artists table whose names sort with their articles ("The Cure" under T) goes
+# by its rows' own letters, an accented name under its base letter (Émilie under E); a slow paint can't break the
+# spin, as it's timed by the wheel's own clock (wheel_spin_at): ticks 200 ms apart once the wheel has spun 700 ms.
+def fold(c):
+    import unicodedata; return unicodedata.normalize('NFD',c)[0].upper()
+def letter_starts(names,art=False):  # each letter's first row, in order
+    def key(t):
+        t=t.lstrip(' ')
+        if art: t=re.sub(r'^(?i:the|a|an) (?=\S)','',t)
+        c=fold(t[0]) if t else ''; return c if 'A'<=c<='Z' else '#' if c.isascii() else c
+    return [i for i,t in enumerate(names) if t and (i==0 or key(names[i-1])!=key(t))]
+def table_letters(rows,records,deque='p_deque_showlist',field='REC_TITLE'):
+    # A virtual table showing rows (a row's text), over records' field in deque, the showlist empty otherwise.
+    m=LetterMachine(); n=len(rows); m.mock('deque_at','deque_size')
+    w,rs,es=m.table_page(rebind=True); m.word(w+O['TABLE_ROWS'],n)
+    recs=[]
+    for t in records: r=m.alloc(0x60); m.word(r+O[field],m.string(t)); recs.append(r)
+    h=m.alloc(0x20); m.decks={h:recs}; m.word(syms[deque],h)
+    if deque!='p_deque_showlist': e=m.alloc(0x20); m.decks[e]=[]; m.word(syms['p_deque_showlist'],e)
+    def rebind(a,offset):
+        m.bind(rs,offset)
+        for r,e_ in zip(rs,es): i=m.get(r+O['ROW_INDEX']); m.nodes[e_]['text']=rows[i] if i<n else ''
+    m.rebind=rebind; rebind(0,0); m.paint(w,gap=0); return m,w
+def spin_letters(m,w,ticks):  # a held spin the wheel has timed at 800 ms, ticks 200 ms apart: where each lands
+    m.call(gap=1000); m.word(payload_syms['wheel_held'],1); out=[]
+    for _ in range(ticks):
+        m.word(payload_syms['wheel_spin_at'],(m.now+200-800)|1); assert m.call(gap=200)==11; out.append(m.selected(w))
+    return out
+ARTISTS=sorted(['ABBA','Adele','Air','Arcade Fire','Beck','Bjork','Blur','Bon Iver','Can','Coldplay','Cream','Daft Punk',
+                'Doves','Eagles','Elbow','Enya','Feist','Foals','Garbage','Muse','Oasis','Pixies','Queen','Radiohead','Spoon',
+                'Suede','Talking Heads','Television','The Beatles','The Cure','The National','The Smiths','Travis','U2','Weezer',
+                'Wilco','XTC','Yes','Zero 7'],key=str.lower)
+ARTISTS.insert(ARTISTS.index('Enya'),'Émilie Simon')  # a locale sort's place
+want=[i for i in letter_starts(ARTISTS) if i>1]
+m,w=table_letters(ARTISTS,ARTISTS,field='REC_ARTIST')
+assert spin_letters(m,w,len(want))==want,(spin_letters,want); passed()
+m.advance(0); m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['Z']; passed()  # Zero 7's, no article read
+# Playlists: their own list (p_deque_playlist), its rows after Import and Export.
+LISTS=['Chill','Dinner','Driving','Gym','Morning','Night','Party','Rainy Day','Road Trip','Run','Sleep','Study',
+       'Summer','Sunday','Work','Workout','Yoga','Zen']
+rows=['Import','Export']+LISTS
+m,w=table_letters(rows,LISTS,deque='p_deque_playlist',field='REC_NAME')
+want=[i for i in letter_starts(rows) if i>1]
+assert spin_letters(m,w,len(want))==want,want; passed()
+# Folder: a file's row shows its name without the extension its record keeps.
+FILES=[f'{c}{i} song' for c in 'ABCDEFGH' for i in range(3)]
+m,w=table_letters(FILES,[f+'.flac' for f in FILES],field='REC_NAME')
+assert spin_letters(m,w,7)==[3,6,9,12,15,18,21]; passed()
+# A row list whose rows show a count before the name: its second text is read.
+m,w=letters_machine(False)
+for e,t in zip(m.es,LETTER_NAMES):
+    c=m.node('label'); m.nodes[c]['text']=t; m.nodes[e]['text']=str(len(t)); m.nodes[e].setdefault('children',[]).append(c)
+got=spin_letters(m,w,7); assert got==[5,10,15,20,25,30,35],got; passed()
 # Not in name order (Recently Added, a playlist): the rows' own speed-up, no letters.
 shuffled=[LETTER_NAMES[(7*i)%40] for i in range(40)]
 for virtual in (False,True):

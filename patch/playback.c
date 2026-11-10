@@ -189,6 +189,14 @@ volatile int wheel_raw __attribute__((section(".scratch")));
 static int wh_raw __attribute__((section(".scratch")));
 volatile int wheel_travel __attribute__((section(".scratch")));
 volatile int wheel_held __attribute__((section(".scratch"))); /* a finger on the wheel */
+/* Fork-only: when the run of ticks going on began, | 1, by the wheel's own clock (0: none): ticks
+ * one way, none further apart than WHEEL_SPIN_GAP_MS (navigation.c's WHEEL_RUN_MS, the ramp's), the
+ * finger down throughout. The letters' spin (navigation.c letter_spun) reads it, so a slow paint of
+ * the list can't break the run. */
+#define WHEEL_SPIN_GAP_MS 140
+volatile unsigned wheel_spin_at __attribute__((section(".scratch")));
+static unsigned wh_spin_last __attribute__((section(".scratch")));
+static int wh_spin_dir __attribute__((section(".scratch")));
 
 /* struct ts_sample {int x, y; unsigned pressure; struct timeval tv;} */
 void wheel_sample(int *s, int ret, char *info) {
@@ -201,6 +209,7 @@ void wheel_sample(int *s, int ret, char *info) {
         wheel_mute = wh_armed = 0;
         if (wh_guard != DARK_OPEN) wh_guard = 0;
         wheel_held = 0;
+        wheel_spin_at = 0;
         return;
     }
     unsigned now = (unsigned)time_now_ms();
@@ -240,6 +249,9 @@ void wheel_sample(int *s, int ret, char *info) {
     while (wh_acc >= units || wh_acc <= -units) {
         int dir = wh_acc > 0 ? 1 : -1;
         wh_acc -= dir * units;
+        if (!wheel_spin_at || dir != wh_spin_dir || now - wh_spin_last > WHEEL_SPIN_GAP_MS)
+            wheel_spin_at = now | 1;
+        wh_spin_dir = dir, wh_spin_last = now;
         wh_tick_at = now;
         wh_since++;
         if (!wheel_mute) wheel_post(info, dir > 0 ? KEY_PREV : KEY_NEXT); /* x rising is back, as stock */
