@@ -38,7 +38,7 @@ static cast_tap *air_map(void) {
     if (fd < 0) return 0;
     void *p = mmap(0, sizeof(cast_tap), 3, 1, fd, 0); /* PROT_READ | PROT_WRITE, MAP_SHARED */
     close(fd);
-    if (p == (void *)-1) return 0;
+    if (!p || p == (void *)-1) return 0; /* MAP_FAILED; 0 only from a stand-in mmap */
     cast_tap *t = p;
     if (t->magic != CAST_MAGIC || t->size != sizeof(cast_tap)) {
         munmap(p, sizeof(cast_tap));

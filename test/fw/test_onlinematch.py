@@ -1038,20 +1038,33 @@ class More:
     def __init__(self, fw, rows=8, view=True):
         self.fw, self.texts, self.on, self.restacked = fw, [], {}, []
         self.win, self.view = widget(), widget()
-        self.item = widget(self.view)
-        self.button = widget(self.item)
-        self.label = widget(self.button, 70)
+        # Each row list_row makes has its own item, button and label; the first, Download Album Lyrics' (al_row
+        # runs first), are item, button and label. AirPlay's row (airplay.c, fork-only) comes after it.
+        self.items, self.buttons, self.labels = [widget(self.view)], [], []
+        self.buttons.append(widget(self.items[0]))
+        self.labels.append(widget(self.buttons[0], 70))
+        self.item, self.button, self.label = self.items[0], self.buttons[0], self.labels[0]
+        self.made = [0, 0, 0]
         a = C.addressof
         fw.mock('stock_playermore_trampoline', lambda *_: 0x55)
         fw.mock('widget_lookup', lambda w, name, *_:
                 a(self.view) if view and w == a(self.win) and C.string_at(name) == b'scroll_view_more' else 0)
         fw.mock('widget_count_children', lambda w, *_: rows if w == a(self.view) else 0)
-        fw.mock('list_item_create', lambda *_: a(self.item))
-        fw.mock('button_create', lambda *_: a(self.button))
-        fw.mock('hscroll_label_create', lambda *_: a(self.label))
+        fw.mock('list_item_create', lambda *_: a(self.make(0)))
+        fw.mock('button_create', lambda *_: a(self.make(1)))
+        fw.mock('hscroll_label_create', lambda *_: a(self.make(2)))
         fw.mock('widget_on', lambda w, event, fn, ctx, *_: self.on.__setitem__((w, event), (fn, ctx)))
         fw.mock('widget_set_text_utf8', lambda w, s, *_: self.texts.append(C.string_at(s).decode()) if w == a(self.label) else 0)
         fw.mock('widget_restack', lambda w, at, *_: self.restacked.append((w, at)))
+
+    def make(self, kind):
+        """The kind's next widget (0 item, 1 button, 2 label): the first ones, then new ones a row."""
+        lists = (self.items, self.buttons, self.labels)
+        k = self.made[kind]
+        self.made[kind] += 1
+        if k >= len(lists[kind]):
+            lists[kind].append(widget(self.view) if kind == 0 else widget(lists[kind - 1][-1], 70 if kind == 2 else 0))
+        return lists[kind][k]
 
     def open(self, win=True):
         return self.fw.fn('ringnav_playermore', C.c_int, C.c_void_p, C.c_void_p)(C.addressof(self.win) if win else None, None)
@@ -1136,7 +1149,8 @@ def test_download_album_lyrics_from_the_more_page_to_the_card(fw, mcl, records, 
     net = lrclib_answers(fw, One='[00:01.00] one\n', Three='[00:01.00] Mix : X\n[00:02.00] three\n')
     job, more = Run(fw), More(fw)
     assert more.open() == 0x55  # stock's
-    assert len(more.texts) == 1 and more.restacked == [(C.addressof(more.item), 3)]  # its title, under the third row
+    assert len(more.texts) == 1 and more.restacked[0] == (C.addressof(more.item), 3)  # its title, under the third row
+    assert more.restacked[1:] == [(C.addressof(more.items[1]), 0)]  # AirPlay's row over them all (fork-only)
     assert more.click() == 0 and job.timers[0][1] == 500
     assert (job.al.job.done, job.al.job.total) == (0, 3) and more.texts[-1] != more.texts[0]  # its progress instead
     assert len(fw.calls('fw_deque_destroy')) == 2  # the library's rows and the album's list, copied: both go
@@ -1286,4 +1300,7 @@ def test_the_row_only_for_a_playing_song_on_the_card_under_stocks_rows(fw, mcl, 
         C.memmove(O['PLAYMORE_ROWS'], struct.pack('<8i', 0, 1, 2, 3, 5, 6, 7, 8), 32)
     more = More(fw, rows=7 if case == 'not stock rows' else 8, view=case != 'no view')
     assert more.open(win=case != 'no window') == 0x55
-    assert not fw.calls('list_item_create') and not more.texts and not more.on
+    # AirPlay's row (fork-only) goes over stock's rows for any song; no Download Album Lyrics row
+    airplay = case in ('online', 'no album', 'not a song', 'no search row')
+    assert len(fw.calls('list_item_create')) == airplay and more.texts == (['AirPlay'] if airplay else [])
+    assert [e for _, e in more.on] == ([O['EVT_CLICK']] if airplay else [])
