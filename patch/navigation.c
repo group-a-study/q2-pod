@@ -10639,8 +10639,9 @@ int search_key(unsigned key) {
 
 /* Library letters (fork-only: upstream's lists step more rows a tick and show the big letter).
  * A list in name order (Songs, Artists, Albums, Album Artists, Genres, Composers, Playlists,
- * Folder, a card app's A to Z), spun on for LIST_LETTER_MS (letter_spun: by the wheel's own clock,
- * so a slow paint of tall rows can't break the spin), goes by letters as Cover Flow does: each tick
+ * Folder, a card app's A to Z) goes a row a tick, without the speed-up or its big letter, as Cover
+ * Flow a cover a tick; spun on for LIST_LETTER_MS (letter_spun: by the wheel's own clock, so a slow
+ * paint of tall rows can't break the spin), it goes by letters as Cover Flow does: each tick
  * takes the selection to the first row of the next letter, or turning back of the one before, no
  * sooner than LIST_LETTER_PACE_MS after the last, so they come at a steady beat however hard the
  * spin; the ticks between wait. paint_letter's big letter shows the row each lands on. As on an
@@ -10650,14 +10651,14 @@ int search_key(unsigned key) {
  * accented Latin letter as its base (É under E), past an article when the list sorts without them
  * (ll.art, whichever reads in order). A row list (kind 1) has every row's text, the row's first
  * text or its second (ll.slot, whichever reads in order: a count can come first); a virtual table
- * (kind 2) only its pooled rows', so its records are found once a run: the showlist's or Playlists'
- * (p_deque_playlist) field, rows ahead of them (Import and Export) and the row's text that the
- * pooled rows show (table_source; a file's name may show without its extension); without one the
- * table keeps the rows' speed-up. Name order is judged on LETTER_SAMPLES rows spread over the list:
- * more than LETTER_DESCENTS steps back in letter order, and a tenth of them, (Recently Added, a
- * playlist, an album's tracks) and it keeps the speed-up too. A list that isn't is judged again
- * LETTER_REJUDGE_MS on, in case its rows were still binding. ponytail: a letter of thousands of
- * rows is walked a row at a time, as Cover Flow's are. */
+ * (kind 2) only its pooled rows', so its records are found at a run's start (letters_list): the
+ * showlist's or Playlists' (p_deque_playlist) field, rows ahead of them (Import and Export) and the
+ * row's text that the pooled rows show (table_source; a file's name may show without its
+ * extension); without one the table keeps the rows' speed-up. Name order is judged on
+ * LETTER_SAMPLES rows spread over the list: more than LETTER_DESCENTS steps back in letter order,
+ * and a tenth of them, (Recently Added, a playlist, an album's tracks) and it keeps the speed-up
+ * too. A list that isn't is judged again LETTER_REJUDGE_MS on, in case its rows were still binding.
+ * ponytail: a letter of thousands of rows is walked a row at a time, as Cover Flow's are. */
 #define LIST_LETTER_MS 700
 #define LIST_LETTER_PACE_MS 140
 #define LETTER_SAMPLES 64
@@ -10670,7 +10671,9 @@ static struct {
     void *w;  /* the surface a run of letters is on (on) */
     unsigned at, seen; /* the last letter's time, and the last tick's in a letter run */
     unsigned judged;   /* when the list was last judged */
-    int ok, field, off, on, art, slot;
+    void *jw;          /* the list judged (jrows long), and its last tick's time */
+    unsigned tick;
+    int ok, field, off, on, art, slot, jrows;
 } ll __attribute__((section(".scratch")));
 
 /* A run of letters is on while the finger that started it stays on the wheel, as an iPod classic's:
@@ -10866,27 +10869,34 @@ static int letter_row(menu_t *m, int from, int dir) {
     return to;
 }
 
-/* A tick's letter on m from row id: the row it goes to, -1 to wait for the pace, or -2 for the
- * rows' own step (no letters here or now). A run starts from a spin and stays while the finger does
- * (letters_held); a table whose records were replaced under it ends it. */
-static int letter_tick(menu_t *m, int id, int dir, unsigned now) {
+/* Whether m is a list the letters go through: a row list or table past SHORT_LIST_MAX rows, not a
+ * menu, in name order. It is judged at a run's first tick and kept for the run; again on a tick
+ * LETTER_REJUDGE_MS after it was judged out of order, its rows perhaps still binding, and when a
+ * table's records were replaced under it, a run of letters going on if it still reads in order. */
+static int letters_list(menu_t *m, unsigned now) {
+    if ((m->kind != 1 && m->kind != 2) || m->rows <= SHORT_LIST_MAX ||
+        (m->ctx >= 0 && contexts[m->ctx].kind == CTX_FIXED) ||
+        !tk_strcmp(widget_get_prop_str(m->w, "name", ""), "scroll_view_localmusic"))
+        return 0;
     int stale = m->kind == 2 && ll.src && ll.deque != P(ll.src, 0);
-    if (!letters_held() || ll.w != m->w || stale) {
+    if (m->w != ll.jw || m->rows != ll.jrows || now - ll.tick > LETTER_MS || stale ||
+        (ll.ok < 0 && now - ll.judged > LETTER_REJUDGE_MS)) {
+        ll.ok = (m->kind == 1 || table_source(m)) && name_order(m) ? 1 : -1;
+        ll.judged = now, ll.jw = m->w, ll.jrows = m->rows;
+    }
+    ll.tick = now;
+    if (ll.ok < 0) ll.on = 0;
+    return ll.ok > 0;
+}
+
+/* A tick's letter on a list in name order (letters_list), from row id: the row it goes to, -1 to
+ * wait for the pace, or -2 for a row (no letters yet, or past the last). A run starts from a spin
+ * and stays while the finger does (letters_held). */
+static int letter_tick(menu_t *m, int id, int dir, unsigned now) {
+    if (!letters_held() || ll.w != m->w) {
         ll.on = 0;
-        if ((!letter_spun(now, LIST_LETTER_MS) && (int)st.wheel_run - 1 < LIST_LETTER_MS) ||
-            (m->kind != 1 && m->kind != 2) || (m->ctx >= 0 && contexts[m->ctx].kind == CTX_FIXED) ||
-            !tk_strcmp(widget_get_prop_str(m->w, "name", ""), "scroll_view_localmusic"))
-            return -2;
-        /* a new run, a table whose records were replaced, or a list judged out of order a moment
-         * ago, its rows perhaps still binding: the list is judged again */
-        if (now - ll.seen > LETTER_MS || stale ||
-            (ll.ok < 0 && now - ll.judged > LETTER_REJUDGE_MS)) {
-            ll.ok = (m->kind == 1 || table_source(m)) && name_order(m) ? 1 : -1;
-            ll.judged = now;
-            if (now - ll.seen > LETTER_MS || stale) ll.at = now - LIST_LETTER_PACE_MS;
-        }
-        ll.seen = now;
-        if (ll.ok < 0) return -2;
+        if (!letter_spun(now, LIST_LETTER_MS) && (int)st.wheel_run - 1 < LIST_LETTER_MS) return -2;
+        if (now - ll.seen > LETTER_MS) ll.at = now - LIST_LETTER_PACE_MS; /* a new run: at once */
         ll.on = 1, ll.w = m->w;
     }
     ll.seen = now;
@@ -11147,12 +11157,15 @@ int ringnav(void *ctx, void *event) {
             slide_menu_scroll_to_prev(w);
     } else if (g_menu.n) {
         int id = widget_get_prop_int(w, SEL, -1);
+        /* A list in name order goes a row a tick until its letters start, as Cover Flow a cover a
+         * tick: no speed-up first, so the big letter shows only with the letters, and stays with
+         * them while the finger does. Other lists keep the rows' speed-up and its letter. */
+        int named = id >= 0 && letters_list(&g_menu, now);
+        if (named && !ll.on) step = 1;
         if (step > 1) rearm(&st.letter_timer, letter_expire, LETTER_MS);
         int next = clamp_step(id < 0 ? (cur >= 0 ? g_menu.id[cur] : 0) : id, g_menu.rows - 1,
                               id < 0 ? 0 : dir * step);
-        int jump = id >= 0 && (step > 1 || ll.on || letter_spun(now, LIST_LETTER_MS))
-                       ? letter_tick(&g_menu, id, dir, now)
-                       : -2;
+        int jump = named ? letter_tick(&g_menu, id, dir, now) : -2;
         if (jump == -1) return STOP; /* between letters: the tick waits for the pace */
         if (jump >= 0) next = jump;
         if (next == 0 || next == g_menu.rows - 1) drop_wheel();

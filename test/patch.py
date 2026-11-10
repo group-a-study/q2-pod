@@ -5917,9 +5917,10 @@ for n,gap in ((40,141),(16,100)):
     m,w,rs,es=letter_machine(False,n)
     for _ in range(6): m.call(gap=gap)
     m.paint(w,gap=0); assert not m.letters and not m.timers; passed()
-# Library letters (fork-only): a list in name order, spun on for LIST_LETTER_MS (700 ms: ticks 100 ms apart,
-# the eighth), goes by letters as Cover Flow does: each tick the next letter's first row, no sooner than
-# LIST_LETTER_PACE_MS (140 ms) after the last, the ticks between waiting; the big letter is the landing row's.
+# Library letters (fork-only): a list in name order goes a row a tick, without the rows' speed-up or its big letter, as
+# Cover Flow a cover a tick; spun on for LIST_LETTER_MS (700 ms: ticks 100 ms apart, the eighth), it goes by letters as
+# Cover Flow does: each tick the next letter's first row, no sooner than LIST_LETTER_PACE_MS (140 ms) after the last,
+# the ticks between waiting; the big letter is the landing row's.
 # A virtual table reads its rows' names from the showlist record field its pooled rows show (REC_TITLE here).
 LETTER_NAMES=[f'{c}{i}' for c in 'ABCDEFGH' for i in range(5)]; LETTER_NAMES[15]='The Dears'  # sorts under D
 class LetterMachine(Machine):
@@ -5955,14 +5956,15 @@ def first_of(names,i,dir=1):  # the expected landing: the next letter's first ro
 for virtual in (False,True):
     m,w=letters_machine(virtual); sel=[]
     for _ in range(7): assert m.call(gap=100)==11; sel.append(m.selected(w))
-    assert sel==[1,2,3,5,7,10,13],sel  # the rows' own speed-up so far, into C
-    assert m.call(gap=100)==11 and m.selected(w)==first_of(LETTER_NAMES,13)==15,(virtual,sel,m.selected(w))
+    assert sel==[1,2,3,4,5,6,7],sel; m.paint(w,gap=0); assert not m.letters,m.letters; passed()  # a row a tick, no letter
+    assert m.call(gap=100)==11 and m.selected(w)==first_of(LETTER_NAMES,7)==10,(virtual,sel,m.selected(w))
+    m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['C'],m.letters; passed()
+    assert m.call(gap=100)==11 and m.selected(w)==10; passed()  # 100 ms on: it waits for the pace
+    assert m.call(gap=100)==11 and m.selected(w)==15; passed()  # 200 ms on: D
     m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['D'],m.letters  # The Dears' letter, past its article
-    assert m.call(gap=100)==11 and m.selected(w)==15; passed()  # 100 ms on: it waits for the pace
-    assert m.call(gap=100)==11 and m.selected(w)==20; passed()  # 200 ms on: E
-    assert m.call(gap=140)==11 and m.selected(w)==25; passed()  # F, at the pace itself
+    assert m.call(gap=140)==11 and m.selected(w)==20; passed()  # E, at the pace itself
     # A pause ends the run: one row again, from that letter's first.
-    assert m.call(gap=300)==11 and m.selected(w)==26; passed()
+    assert m.call(gap=300)==11 and m.selected(w)==21; passed()
     # Spun on the other way, the letters run back, each the letter before's first row.
     for _ in range(7): m.call(O['KEY_PREV'],gap=100)
     at=m.selected(w); assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==first_of(LETTER_NAMES,at,-1),(at,m.selected(w)); passed()
@@ -5974,8 +5976,10 @@ for virtual in (False,True):
 # letter stays up past LETTER_MS; a lift ends them, and a tick is a row again.
 for virtual in (False,True):
     m,w=letters_machine(virtual); m.word(payload_syms['wheel_held'],1)
-    for _ in range(8): m.call(gap=100)
+    for _ in range(10): m.call(gap=100)
     assert m.selected(w)==15,m.selected(w)  # D's first (The Dears)
+    if virtual:  # the table's records reloaded under it, the same names: the letters go on
+        h=m.alloc(0x20); m.decks[h]=list(m.records); m.word(syms['p_deque_showlist'],h)
     assert m.call(gap=300)==11 and m.selected(w)==20; passed()  # a pause: still letters, E
     m.advance(1000); m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['E'],m.letters; passed()  # the letter stays up
     assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==15; passed()  # turned back: D's first
