@@ -10639,7 +10639,7 @@ int search_key(unsigned key) {
 #define LETTER_DESCENTS 3
 extern unsigned initial_class(unsigned c);
 static struct {
-    void *deque; /* a table's records: row i is record i - off's field */
+    void *deque;       /* a table's records: row i is record i - off's field */
     unsigned at, seen; /* the last letter's time, and the last tick's in a letter run */
     int ok, field, off;
 } ll __attribute__((section(".scratch")));

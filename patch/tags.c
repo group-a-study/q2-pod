@@ -164,7 +164,9 @@ int ringnav_scan_folder(const char *name, const char *dot, const char *dir) {
         return 0;
     return strcmp(name, dot);
 }
-int ringnav_scan_dir(const char *name, const char *dot) { return ringnav_scan_folder(name, dot, 0); }
+int ringnav_scan_dir(const char *name, const char *dot) {
+    return ringnav_scan_folder(name, dot, 0);
+}
 /* SCAN_DIRS' jal: the walk keeps the folder it reads, name's parent, in $s1 (its opendir's and
  * "%s/%s"'s), handed on as dir. */
 __asm__(".globl ringnav_scan_walk\nringnav_scan_walk:\nmove $a2, $s1\nj ringnav_scan_folder\n");
