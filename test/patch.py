@@ -5971,6 +5971,17 @@ for virtual in (False,True):
     m,w=letters_machine(virtual)
     for _ in range(30): m.call(gap=100)
     assert m.selected(w)==len(LETTER_NAMES)-1; passed()
+# Held (fork-only, an iPod classic's): with the finger on the wheel the letters stay, paused or turned back, and the big
+# letter stays up past LETTER_MS; a lift ends them, and a tick is a row again.
+for virtual in (False,True):
+    m,w=letters_machine(virtual); m.word(payload_syms['wheel_held'],1)
+    for _ in range(8): m.call(gap=100)
+    assert m.selected(w)==15,m.selected(w)  # D's first (The Dears)
+    assert m.call(gap=300)==11 and m.selected(w)==20; passed()  # a pause: still letters, E
+    m.advance(1000); m.paint(w,gap=0); assert [l['text'] for l in m.letters]==['E'],m.letters; passed()  # the letter stays up
+    assert m.call(O['KEY_PREV'],gap=100)==11 and m.selected(w)==15; passed()  # turned back: D's first
+    m.word(payload_syms['wheel_held'],0); m.advance(O['LETTER_MS']); m.paint(w,gap=0); assert not m.letters; passed()  # lifted
+    assert m.call(gap=300)==11 and m.selected(w)==16; passed()  # a row a tick again
 # Not in name order (Recently Added, a playlist): the rows' own speed-up, no letters.
 shuffled=[LETTER_NAMES[(7*i)%40] for i in range(40)]
 for virtual in (False,True):

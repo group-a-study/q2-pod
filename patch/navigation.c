@@ -1702,7 +1702,10 @@ unsigned put_num(unsigned *s, unsigned v) {
     return n;
 }
 
+static int letters_held(void);
 static int letter_expire(const void *info) {
+    if (letters_held())
+        return 8; /* RET_REPEAT: the letter stays under a finger still on the wheel */
     st.letter_timer = 0;
     void *w = surface((void *)0, (void *)0);
     if (w && w == st.wheel_surface) widget_invalidate_force(w, (void *)0);
@@ -1727,8 +1730,9 @@ static void draw_letter(void *canvas, const unsigned *c, rect_t *box) {
  * textless row shows nothing. The fill color and clip are restored. */
 static void paint_letter(void *w, void *canvas) {
     rect_t old;
-    if (!st.letter_timer || w != st.wheel_surface || st.wheel_run <= LIST_FIRST_MS ||
-        st.touch_mode || !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w) ||
+    if (!st.letter_timer || w != st.wheel_surface ||
+        (st.wheel_run <= LIST_FIRST_MS && !letters_held()) || st.touch_mode ||
+        !P(canvas, CANVAS_LCD) || !load_rows(&g_menu, w) ||
         (g_menu.ctx >= 0 && contexts[g_menu.ctx].kind == CTX_FIXED) || /* menus: not alphabetical */
         /* nor Library's categories beside Home's pane */
         !tk_strcmp(widget_get_prop_str(w, "name", ""), "scroll_view_localmusic"))
@@ -10626,8 +10630,10 @@ int search_key(unsigned key) {
  * spun on for LIST_LETTER_MS, goes by letters as Cover Flow does: each tick takes the selection to
  * the first row of the next letter, or turning back of the one before, no sooner than
  * LIST_LETTER_PACE_MS after the last, so they come at a steady beat however hard the spin; the
- * ticks between wait. paint_letter's big letter shows the row each lands on. A pause, a turn back
- * or a slower spin ends the run (ramp), and rows go one a tick again from that letter's first.
+ * ticks between wait. paint_letter's big letter shows the row each lands on. As on an iPod classic,
+ * the run and its letter stay while the finger stays on the wheel: slower, paused or turned back,
+ * every tick is still a letter (letters_held). A lift ends it, and rows go one a tick again from
+ * that letter's first.
  * A row's letter is initial_class of its first character, past the article a library list sorts
  * without (CTX_LOCAL, as paint_letter). A row list (kind 1) has every row's text; a virtual table
  * (kind 2) only its pooled rows', so its records are found once a run: the showlist field whose
@@ -10642,9 +10648,18 @@ int search_key(unsigned key) {
 extern unsigned initial_class(unsigned c);
 static struct {
     void *deque;       /* a table's records: row i is record i - off's field */
+    void *w;           /* the surface a run of letters is on (on) */
     unsigned at, seen; /* the last letter's time, and the last tick's in a letter run */
-    int ok, field, off;
+    int ok, field, off, on;
 } ll __attribute__((section(".scratch")));
+
+/* A run of letters is on while the finger that started it stays on the wheel, as an iPod classic's:
+ * the big letter stays up, and every tick, slow or fast, either way, is a letter. A lift ends it,
+ * once letter_expire sees the wheel let go (LETTER_MS on, so a quick re-grip goes on). */
+static int letters_held(void) {
+    if (ll.on && !wheel_held) ll.on = 0;
+    return ll.on;
+}
 
 static unsigned utf8_next(const unsigned char **p) {
     unsigned c = *(*p)++;
@@ -10757,17 +10772,27 @@ static int letter_row(menu_t *m, int from, int dir) {
 }
 
 /* A tick's letter on m from row id: the row it goes to, -1 to wait for the pace, or -2 for the
- * rows' own step (no letters here or now). */
+ * rows' own step (no letters here or now). A run starts from a spin and stays while the finger does
+ * (letters_held); a table whose records were replaced under it ends it. */
 static int letter_tick(menu_t *m, int id, int dir, unsigned now) {
-    if ((int)st.wheel_run - 1 < LIST_LETTER_MS || (m->kind != 1 && m->kind != 2) ||
-        (m->ctx >= 0 && contexts[m->ctx].kind == CTX_FIXED) ||
-        !tk_strcmp(widget_get_prop_str(m->w, "name", ""), "scroll_view_localmusic"))
-        return -2;
-    /* a new run, or a table whose records were replaced: the list is judged again */
-    if (now - ll.seen > LETTER_MS || (m->kind == 2 && ll.deque != P(p_deque_showlist, 0)))
-        ll.ok = (m->kind == 1 || table_source(m)) && name_order(m) ? 1 : -1;
+    int stale = m->kind == 2 && ll.deque != P(p_deque_showlist, 0);
+    if (!letters_held() || ll.w != m->w || stale) {
+        ll.on = 0;
+        if ((int)st.wheel_run - 1 < LIST_LETTER_MS || (m->kind != 1 && m->kind != 2) ||
+            (m->ctx >= 0 && contexts[m->ctx].kind == CTX_FIXED) ||
+            !tk_strcmp(widget_get_prop_str(m->w, "name", ""), "scroll_view_localmusic"))
+            return -2;
+        /* a new run, or a table whose records were replaced: the list is judged again */
+        if (now - ll.seen > LETTER_MS || stale) {
+            ll.ok = (m->kind == 1 || table_source(m)) && name_order(m) ? 1 : -1;
+            ll.at = now - LIST_LETTER_PACE_MS;
+        }
+        ll.seen = now;
+        if (ll.ok < 0) return -2;
+        ll.on = 1, ll.w = m->w;
+    }
     ll.seen = now;
-    if (ll.ok < 0) return -2;
+    rearm(&st.letter_timer, letter_expire, LETTER_MS);
     if (now - ll.at < LIST_LETTER_PACE_MS) return -1;
     int to = letter_row(m, id, dir);
     if (to < 0) return -2; /* the last letter: rows on to the end */
@@ -11002,7 +11027,7 @@ int ringnav(void *ctx, void *event) {
     if (is_home(top, w)) {
         if (coverflow_wheel_on(w)) return STOP; /* a tick queued as the wheel went raw */
         int speed = ramp(top, w, g_menu.scope, g_menu.ctx, dir, now, CF_FIRST_MS, LIST_RAMP_MS);
-        home_step(w, dir, now, speed > 1);
+        home_step(w, dir, now, speed > 1 || (cf_letters_held() && st.cf_letter_surface == w));
         widget_invalidate_force(w, (void *)0);
         return STOP;
     }
