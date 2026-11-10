@@ -1040,16 +1040,16 @@ def validate_assets(directory):
             assert len(info) == 18 and info[8][1][1] + info[8][1][3] <= page['slide_indicator1'][1][1], g.name
             # Fork-only: the icon row's glyphs NP_IPOD_ICON_GAP apart, ink to ink, as the firmware's own bitmaps draw
             # centred in their frames (AirPlay's, airplay.c's: order's size, as far left of it as favourite's frame is
-            # right), AirPlay's where dev74 had it, NP_IPOD_ICON left of Minimal's order's centre; the row where Minimal's
+            # right), AirPlay's NP_IPOD_AIR_RIGHT right of dev74's, NP_IPOD_ICON left of Minimal's order's centre; the row where Minimal's
             # would sit NP_IPOD_ROW_UP higher on the screen; the dots at NP_IPOD_DOTS, under the bar's reflection, the
             # slider over the column for touches
-            from ipod import NP_IPOD_ICON, NP_IPOD_ICON_GAP, NP_IPOD_FAV_W, NP_IPOD_ROW_UP
+            from ipod import NP_IPOD_AIR_RIGHT, NP_IPOD_ICON, NP_IPOD_ICON_GAP, NP_IPOD_FAV_W, NP_IPOD_ROW_UP
             album = page['view_album'][3]
             mode, fav = [n[1] for n in album if n[2]['name'] in ('img_playmode', 'img_fav')]
             col = page['slide_view_view'][1]
             assert mode[2] == NP_IPOD_ICON and fav[2] == NP_IPOD_FAV_W and mode[3] == fav[3] == 50, g.name
             air = [2 * mode[0] - fav[0], mode[1], mode[2], mode[3]]
-            assert air[0] + air[2] // 2 == 247 + 25 - NP_IPOD_ICON and fav[0] + fav[2] <= 375, (g.name, air, fav)
+            assert air[0] + air[2] // 2 == 247 + 25 - NP_IPOD_ICON + NP_IPOD_AIR_RIGHT and fav[0] + fav[2] <= 375, (g.name, air, fav)
             def ink(box, image):  # the glyph's first and last inked columns on the screen, drawn centred in box
                 png = read('rootfs.squashfs', 'release/assets/default/raw/images/xx/' + image + '.png')
                 w, h = png_header(png)[:2]

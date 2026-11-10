@@ -155,9 +155,11 @@ NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
 NP_ICON_PAD = inc('NP_ICON_PAD')  # play_fav/play_order: 28px, centred, glyph ends 4px above
 # Fork-only: Classic's icon row (AirPlay, order, favourite) NP_IPOD_ROW_UP above where Minimal's sits on the screen,
-# its glyphs NP_IPOD_ICON_GAP apart, ink to ink, AirPlay where dev74 had it (patch/offsets.inc NP_IPOD_MODE_X)
+# its glyphs NP_IPOD_ICON_GAP apart, ink to ink, AirPlay NP_IPOD_AIR_RIGHT right of where dev74 had it
+# (patch/offsets.inc NP_IPOD_MODE_X)
 NP_IPOD_ROW_UP = 16
-NP_IPOD_ICON_GAP = 24
+NP_IPOD_ICON_GAP = 25
+NP_IPOD_AIR_RIGHT = 3
 NP_IPOD_ICON = inc('NP_IPOD_ICON')
 NP_IPOD_FAV_W = inc('NP_IPOD_FAV_W')
 NP_MARGIN = 16
