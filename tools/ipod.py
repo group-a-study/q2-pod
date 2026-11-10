@@ -154,7 +154,10 @@ HOME_LIST_W = 375
 NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
 NP_ICON_PAD = inc('NP_ICON_PAD')  # play_fav/play_order: 28px, centred, glyph ends 4px above
-NP_ICONS_UP = 16  # fork-only: Now Playing's icon row (AirPlay, order, favourite) this much higher, as it sat before 1.7
+# Fork-only: Classic's icon row (AirPlay, order, favourite): order where Minimal's sits on the screen when the row
+# is NP_IPOD_ROW_UP above Minimal's own, the three NP_IPOD_ICON apart, closer than Minimal's 50 + 6
+NP_IPOD_ROW_UP = 16
+NP_IPOD_ICON = inc('NP_IPOD_ICON')
 NP_MARGIN = 16
 NP_TEXT_W = 165
 NP_TITLE_PX = inc('NP_TITLE_PX')  # the title over the NP_META_PX artist and album, as Apple's hierarchy
@@ -163,6 +166,7 @@ NP_ART = 375 - 2 * NP_MARGIN - 12 - NP_TEXT_W
 NP_SLIDE_H = 186                 # the swipeable art, lyrics and info pages; the dots sit below
 NP_DOTS_Y = NP_SLIDE_H - 4       # above the seek bar's NP_TOUCH target
 NP_DOTS_UNDER = 270              # fork-only: Minimal's dots under the bar, between the times, as Centred's (stock's 270)
+NP_IPOD_DOTS = inc('NP_IPOD_DOTS')  # fork-only: Classic's under its bar's reflection
 # The art's gap below to the dots matches its gap above to "3 of 12"'s 16px text.
 NP_ART_Y = (NP_DOTS_Y - NP_ART - (NP_TOP - 16) // 2) // 2
 NP_TOUCH = 44
@@ -629,17 +633,19 @@ def playing_page(root, g=SET0):
     text_w = 375 - NP_MARGIN - text_x
     # Favourite centres beneath More; leave 6px between its target and shuffle/order. The row ends
     # with the art, clear of the dots: the 28px glyphs, centred, end 15px above their frame's bottom.
-    # Fork-only: NP_ICONS_UP higher, the text where it was; Classic's row where Minimal's is on the
-    # screen, at Minimal's spacing, whatever its own art and bar.
+    # Fork-only, Classic's: order centred where Minimal's would sit NP_IPOD_ROW_UP higher on the screen,
+    # whatever Classic's own art and bar, favourite and AirPlay (airplay.c) beside it NP_IPOD_ICON wide, edge to edge.
     text_icons_y = art_y + art - NP_ICON + NP_ICON_PAD
-    icons_y = text_icons_y - NP_ICONS_UP
-    fav_x = named['img_more'][1][0]
+    icons_y = text_icons_y
+    fav_x, icon_w, gap = named['img_more'][1][0], NP_ICON, 6
     if g.np_ipod:
-        fav_x = with_geometry(SET0).NP_ICONS_END - NP_ICON
-        icons_y = SET0.bar + NP_TOP + NP_ART_Y + NP_ART - NP_ICON + NP_ICON_PAD - NP_ICONS_UP - g.bar - (NP_TOP - lift)
-    for name, x in (('img_playmode', fav_x - NP_ICON - 6), ('img_fav', fav_x)):
+        mode_c = with_geometry(SET0).NP_ICONS_END - NP_ICON - 6 - NP_ICON // 2  # Minimal's order, centred
+        icon_w, gap = NP_IPOD_ICON, 0
+        fav_x = mode_c - icon_w // 2 + icon_w + gap
+        icons_y = SET0.bar + NP_TOP + NP_ART_Y + NP_ART - NP_ICON + NP_ICON_PAD - NP_IPOD_ROW_UP - g.bar - (NP_TOP - lift)
+    for name, x in (('img_playmode', fav_x - icon_w - gap), ('img_fav', fav_x)):
         buttons[3].remove(named[name])
-        named[name][1] = [x, icons_y, NP_ICON, NP_ICON]
+        named[name][1] = [x, icons_y, icon_w, NP_ICON]
     top = art_y + (text_icons_y - NP_ICON_PAD - art_y - (28 + 6 + 22 + 6 + 22 + g.np_ipod * (6 + 20))) // 2
     if g.np_ipod:  # the text starts under More, "3 of 12" under the album
         top = max(top, lift - 2)
@@ -702,9 +708,10 @@ def playing_page(root, g=SET0):
             n[1][1] += lift
     # Classic's page reaches past the dots, down to its art's reflection, so a swipe takes it along
     slide_h = max(NP_SLIDE_H + lift, art_y + art + g.np_ipod * NP_REFLECT)
-    # Fork-only: Minimal's dots always under the bar, between the times, as Centred Now Playing's; the
-    # column reaches down to them (the slider, over it, still takes its touches). Classic keeps its own.
-    dots_y = NP_DOTS_Y + lift if g.np_ipod else NP_DOTS_UNDER - NP_TOP
+    # Fork-only: the dots always at the foot, Minimal's under the bar, between the times, as Centred Now
+    # Playing's, Classic's under its bar's reflection; the column reaches down to them (the slider, over
+    # it, still takes its touches).
+    dots_y = (NP_IPOD_DOTS if g.np_ipod else NP_DOTS_UNDER) - (NP_TOP - lift)
     named['slide_view_view'][1] = [0, NP_TOP - lift, 375, max(dots_y + 10, slide_h)]
     named['slide_view'][1] = [0, 0, 375, slide_h]
     dots = named['slide_indicator1']

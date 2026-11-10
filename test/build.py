@@ -824,11 +824,10 @@ def validate_assets(directory):
             assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album',
                                                      'img_playmode', 'img_fav']
             # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
-            # Order and favourite frames NP_ICONS_UP above the art's foot plus NP_ICON_PAD (fork-only: 16 px higher than upstream's,
-            # where they sat before 1.7), the text where it was; favourite centred below More. The art's gap to the dots below (y 182)
-            # matches its gap to "3 of 12"'s text above.
+            # Order and favourite glyphs level with the art's foot (frames NP_ICON_PAD lower); favourite centred below More. The art's gap to
+            # the dots below (y 182) matches its gap to "3 of 12"'s text above.
             assert [n[1] for n in album] == [[16, 2, 166, 166], [39, 25, 120, 120], [194, 18, 165, 28], [194, 52, 165, 22], [194, 80, 165, 22],
-                                             [247, 117, 50, 50], [303, 117, 50, 50]]
+                                             [247, 133, 50, 50], [303, 133, 50, 50]]
             assert album[-1][1][0] == named['img_more'][1][0] and album[-1][1][2] == named['img_more'][1][2] == 50
             assert album[-1][1][0] - (album[-2][1][0] + album[-2][1][2]) == 6 and 80 + 22 < 118 + 13
             assert album[1][2]['opacity'] == '0'  # playback gestures retain their original target
@@ -1039,6 +1038,18 @@ def validate_assets(directory):
                 assert n[1][3] == value[1][3] >= px and ink(table[key].decode(), px) <= n[1][2] and value[1][0] == n[1][0] + n[1][2], (g.name, table[key])
                 assert min(n[1][0], 375 - value[1][0] - value[1][2]) >= corner_x(dy + n[1][1], n[1][3]), (g.name, table[key])
             assert len(info) == 18 and info[8][1][1] + info[8][1][3] <= page['slide_indicator1'][1][1], g.name
+            # Fork-only: the icon row edge to edge, NP_IPOD_ICON wide, order centred where Minimal's would sit NP_IPOD_ROW_UP
+            # higher on the screen; the dots at NP_IPOD_DOTS, under the bar's reflection, the slider over the column for touches
+            from ipod import NP_IPOD_ICON, NP_IPOD_ROW_UP
+            album = page['view_album'][3]
+            mode, fav = [n[1] for n in album if n[2]['name'] in ('img_playmode', 'img_fav')]
+            col = page['slide_view_view'][1]
+            assert mode[2] == fav[2] == NP_IPOD_ICON and fav[0] == mode[0] + NP_IPOD_ICON and mode[3] == fav[3] == 50, g.name
+            assert g.bar + col[1] + mode[1] == SET0.bar + NP_TOP + 133 - NP_IPOD_ROW_UP and mode[0] + NP_IPOD_ICON // 2 == 247 + 25, (g.name, mode)
+            assert [fav[0], col[1] + fav[1]] == [inc('NP_IPOD_FAV_X'), inc('NP_IPOD_FAV_Y')], g.name
+            dots = page['slide_indicator1'][1]
+            assert col[1] + dots[1] == inc('NP_IPOD_DOTS') and inc('NP_IPOD_BAR_Y') + inc('NP_BAR_IPOD') + inc('SCRUB_REFLECT_ROWS') <= inc('NP_IPOD_DOTS'), g.name
+            assert col[1] + col[3] == inc('NP_IPOD_DOTS') + 10 <= 320 - g.bar, g.name
     payload_symbols = symbols(directory/'patch.elf')
     for address in [AUDIT['immediates'][0]['sites'][0][0], '0x522410', '0x523de0', '0x4b3130', AUDIT['row_layout_calls']['sites'][0][0],
                     hex(inc('LIST_VIEW_LAYOUT_SLOT'))]:

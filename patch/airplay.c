@@ -207,9 +207,11 @@ static int air_gone(void *win, void *event) {
 
 /* iPod Now Playing (ringnav_playing): the AirPlay button left of shuffle, in its row and size. */
 void airplay_button(void *win) {
-    void *mode = widget_lookup(win, "img_playmode", 1);
+    void *mode = widget_lookup(win, "img_playmode", 1), *fav = widget_lookup(win, "img_fav", 1);
     if (!mode) return;
-    void *b = image_create(P(mode, W_PARENT), I(mode, W_X) - I(mode, W_W) - 6, I(mode, W_Y),
+    /* the row's own gap between order and favourite: 6 px, Classic's none (tools/ipod.py) */
+    int gap = fav ? I(fav, W_X) - I(mode, W_X) - I(mode, W_W) : 6;
+    void *b = image_create(P(mode, W_PARENT), I(mode, W_X) - I(mode, W_W) - gap, I(mode, W_Y),
                            I(mode, W_W), I(mode, W_H));
     image_set_draw_type(b, IMAGE_DRAW_CENTER);
     widget_set_prop_str(b, "clickable", "true");
