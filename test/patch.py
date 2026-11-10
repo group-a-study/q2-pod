@@ -5360,6 +5360,28 @@ lm.call(address=HOOKS['toolsQueryDbTable'][0],args=(lm.string('/mnt/data/databas
 assert {r[0] for r in lm.results}=={1,2,3,4,5}
 assert lm.db.execute('select count(*) from songtable').fetchone()[0]==6
 lm.db.close(); passed()
+# The tab's stock row callback (0x4fc550) then keeps a row only if its albumsonger (v[4]) is the name.
+# The SQL found it case aside, so the check is case aside too (fork-only): one Artists row (COLLATE NOCASE)
+# shows every spelling's albums. Stock dropped the other spelling's; another name is still dropped.
+def artist_album_kept(m,artist,albumsonger):
+    seen=[]
+    def stop(u,addr,size,_):
+        if addr in (0x4fc5d8,0x4fc764): seen.append(addr); u.emu_stop()  # past the check: kept, or dropped
+    hook=m.u.hook_add(UC_HOOK_CODE,stop)
+    values=m.alloc(20)
+    for i,v in enumerate(('7','Unreleased','Florence Welch','/mnt/mmc/Apple Music/F/1.m4a',albumsonger)):
+        m.word(values+4*i,m.string(v))
+    for reg,v in ((UC_MIPS_REG_A0,m.string(artist)),(UC_MIPS_REG_A1,5),(UC_MIPS_REG_A2,values),(UC_MIPS_REG_A3,0),
+                  (UC_MIPS_REG_T9,0x4fc550),(UC_MIPS_REG_SP,0x7000f000),(UC_MIPS_REG_RA,0x70000000)):
+        m.u.reg_write(reg,v)
+    m.u.emu_start(0x4fc550,0x70000000,count=200); m.u.hook_del(hook)
+    return seen==[0x4fc5d8] if seen in ([0x4fc5d8],[0x4fc764]) else None
+for patched in (1,0):
+    am=Machine(patched=bool(patched))  # m stays the Albums test's, which the art keys use next
+    for albumsonger,kept in (('Florence + The Machine',1),('Florence + the Machine',patched),('FLORENCE + THE MACHINE',patched),
+                             ('Florence + The Machine Live',0),('Florence',0)):
+        assert artist_album_kept(am,'Florence + The Machine',albumsonger)==bool(kept),(patched,albumsonger)
+passed()
 # The compiled marker walker and SQL wrapper share nearest-marker rules; filenames are literal
 # prefixes (quotes, SQL wildcard characters and UTF-8), and scoped Coverflow SQL expands even
 # outside a normal-library call. A library update refreshes both SQL and stored-list snapshots.
