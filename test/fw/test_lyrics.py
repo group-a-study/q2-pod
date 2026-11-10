@@ -26,7 +26,7 @@ class Line(C.Structure):
 
 class LyLine(C.Structure):
     _fields_ = [('ms', C.c_int), ('text', C.c_uint), ('n', C.c_uint), ('mark', C.c_uint), ('marks', C.c_uint),
-                ('px', C.c_ubyte), ('rows', C.c_ubyte), ('start', C.c_ushort * 4), ('len', C.c_ushort * 4), ('w', C.c_ushort * 4)]
+                ('px', C.c_ubyte), ('rows', C.c_ubyte), ('face', C.c_ubyte), ('start', C.c_ushort * 4), ('len', C.c_ushort * 4), ('w', C.c_ushort * 4)]
 
 
 class Tab(C.Structure):
@@ -413,7 +413,7 @@ def wrap(fw, s, width=100, adv=10):
     return k, [(line.start[r], line.len[r], line.w[r]) for r in range(min(k, 4))]
 
 
-# At width 100 and 10 px a character, with LYRIC_BOLD's 2 px: 9 characters fit a row.
+# At width 100 and 10 px a character, with LYRIC_BOLD's 1 px (a line in the system font; fork-only): 9 characters fit a row.
 @pytest.mark.parametrize('s,rows', [
     ('', []), ('    ', []),
     ('a', [(0, 1, 10)]),
@@ -435,8 +435,22 @@ def test_wrap_at_100(fw, s, rows):
 
 
 def test_a_row_fits_to_the_pixel(fw):
-    assert wrap(fw, 'a' * 10, width=102)[1] == [(0, 10, 100)]
-    assert wrap(fw, 'a' * 10, width=101)[1] == [(0, 9, 90), (9, 1, 10)]
+    assert wrap(fw, 'a' * 10, width=101)[1] == [(0, 10, 100)]
+    assert wrap(fw, 'a' * 10, width=100)[1] == [(0, 9, 90), (9, 1, 10)]
+
+
+def test_a_line_in_inter_takes_no_bold_room(fw):  # fork-only: Inter Display ExtraBold, drawn once
+    state(fw).w = 100
+    chars = [ord('a')] * 10
+    line = LyLine(n=10, face=1)
+    k = wrap_fn(fw)(C.byref(line), (C.c_uint * 11)(*chars), (C.c_ushort * 11)(*[10] * 10))
+    assert (k, line.start[0], line.len[0], line.w[0]) == (1, 0, 10, 100)
+
+
+@pytest.mark.parametrize('c,inter', [(0x20, 1), (0x7e, 1), (0x7f, 0), (0xe9, 1), (0xad, 0), (0x149, 0), (0x17f, 1), (0x180, 0),
+                                     (0x2019, 1), (0x2026, 1), (0x4f60, 0)])
+def test_the_characters_inter_draws(fw, c, inter):
+    assert fw.fn('lyrics__ly_inter', C.c_int, C.c_uint)(c) == inter
 
 
 def test_the_page_width_before_rows_are_laid_out(fw):
