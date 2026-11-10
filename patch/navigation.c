@@ -4692,8 +4692,7 @@ int stream_ipod(void *art, void *const text[4], void *elapsed, void *remain, voi
         widget_set_sensitive(bar, 0);
     }
     widget_move_resize(bar, NP_IPOD_BAR_X, NP_IPOD_BAR_Y, bw, NP_BAR_IPOD + SCRUB_REFLECT_ROWS);
-    if (heart)
-        widget_move_resize(heart, NP_IPOD_FAV_X, NP_IPOD_FAV_Y, NP_IPOD_ICON, 50); /* local NP's */
+    if (heart) widget_move_resize(heart, NP_IPOD_FAV_X, NP_IPOD_FAV_Y, 50, 50); /* local NP's */
     return 1;
 }
 

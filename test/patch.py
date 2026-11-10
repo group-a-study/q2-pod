@@ -15333,7 +15333,7 @@ rl={r.nodes[w].get('text'):w for w in r.nodes[rnp]['children'] if r.nodes[w]['ty
 assert cf_geometry(r,rl['One'])==(O['NP_IPOD_TEXT_X'],O['NP_IPOD_TEXT_Y'],375-16-O['NP_IPOD_TEXT_X'],28) and r.nodes[rl['Internet Radio']]['visible']==0
 assert cf_geometry(r,rl['Connecting…'])==(O['NP_IPOD_TEXT_X'],O['NP_IPOD_TEXT_Y']+90,375-16-O['NP_IPOD_TEXT_X'],20) and r.nodes[rl['Connecting…']]['style:normal:font_size']==16
 rheart=next(w for w in r.nodes[rnp]['children'] if r.nodes[w].get('image') in ('play_fav','play_unfav'))
-assert cf_geometry(r,rheart)==(O['NP_IPOD_FAV_X'],O['NP_IPOD_FAV_Y'],O['NP_IPOD_ICON'],50) and r.nodes[rheart]['image']=='play_fav'
+assert cf_geometry(r,rheart)==(O['NP_IPOD_FAV_X'],O['NP_IPOD_FAV_Y'],50,50) and r.nodes[rheart]['image']=='play_fav'
 # the running time in "-59:59"'s box until the hour (ipod_times), the bar between it and its mirror
 W2=O['NP_IPOD_TIME_W2']; bx,bw=edge+W2+GAP,375-2*(edge+W2+GAP)
 relapsed=next(w for w in r.nodes[rnp]['children'] if r.nodes[w]['type']=='hscroll_label' and cf_geometry(r,w)[0]==edge)

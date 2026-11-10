@@ -179,9 +179,8 @@
 #define NP_IPOD_ART_DROP 10 /* the local page's art this far under the first row clear of the glass */
 #define NP_IPOD_TEXT_X 206
 #define NP_IPOD_TEXT_Y 38
-#define NP_IPOD_FAV_X 294 /* fork-only: beside order, where Minimal's sits (tools/ipod.py NP_IPOD_ROW_UP) */
+#define NP_IPOD_FAV_X 303 /* fork-only: Minimal's x, the row where Minimal's sits (tools/ipod.py NP_IPOD_ROW_UP) */
 #define NP_IPOD_FAV_Y 161
-#define NP_IPOD_ICON 44 /* fork-only: the row's icons' width, edge to edge (AirPlay, order, favourite) */
 #define NP_IPOD_DOTS 276 /* fork-only: the page dots' y in the window, under the bar's reflection */
 #define NP_IPOD_BAR_X 66
 #define NP_IPOD_BAR_Y 245
