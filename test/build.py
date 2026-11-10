@@ -824,10 +824,11 @@ def validate_assets(directory):
             assert [n[2]['name'] for n in album] == ['img_cover', 'img_playstate', 'scrlabel_title', 'scrlabel_artist', 'label_ipod_album',
                                                      'img_playmode', 'img_fav']
             # 16px outer margins, 12px from the art to the text, the text column 165px wide; the title larger.
-            # Order and favourite glyphs level with the art's foot (frames NP_ICON_PAD lower); favourite centred below More. The art's gap to
-            # the dots below (y 182) matches its gap to "3 of 12"'s text above.
+            # Order and favourite frames NP_ICONS_UP above the art's foot plus NP_ICON_PAD (fork-only: 16 px higher than upstream's,
+            # where they sat before 1.7), the text where it was; favourite centred below More. The art's gap to the dots below (y 182)
+            # matches its gap to "3 of 12"'s text above.
             assert [n[1] for n in album] == [[16, 2, 166, 166], [39, 25, 120, 120], [194, 18, 165, 28], [194, 52, 165, 22], [194, 80, 165, 22],
-                                             [247, 133, 50, 50], [303, 133, 50, 50]]
+                                             [247, 117, 50, 50], [303, 117, 50, 50]]
             assert album[-1][1][0] == named['img_more'][1][0] and album[-1][1][2] == named['img_more'][1][2] == 50
             assert album[-1][1][0] - (album[-2][1][0] + album[-2][1][2]) == 6 and 80 + 22 < 118 + 13
             assert album[1][2]['opacity'] == '0'  # playback gestures retain their original target
