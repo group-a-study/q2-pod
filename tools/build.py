@@ -1676,7 +1676,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     from ipod import (AUDIT, ARTIST_ALBUMS, SETTINGS_ICONS, inc, UI_ASSETS, patch_asset,
                       QUIET_ICONS, quiet_icon, imagemagick, patch_code, patch_style, patch_word, branch, settings_icon,
                       STATUS_ICONS, status_icon, row_icon, ART_PLACEHOLDERS, sized_art, PLAYING_STOCK, PLAYING_PAGE, playing_stock,
-                      set_assets)
+                      set_assets, red_glyph)
     contexts = re.findall(r'"([^"]+)"', (ROOT/'patch/contexts.inc').read_text())
     check(contexts, 'No navigation contexts audited')
     windows, chinese = set(), set()  # chinese: the UI assets english_ui rewrites
@@ -2014,6 +2014,9 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     icons['classic_light_list_tidal.png'] = ('list_tidal.png', row_icon(cat(xx+'list_tidal.png'), pane))
     icons['default_album_home.png'] = ('default_album_big.png', art)
     icons['default_album_flow.png'] = ('default_album_big.png', sized_art(art, 160))
+    # Now Playing's AirPlay button while a speaker plays (airplay.c): stock's glyph in the heart's
+    # red, which the accent maps as it does the heart's
+    icons['airplay_on.png'] = ('airplay.png', red_glyph(cat(xx+'airplay.png')))
     pages = {ui+PLAYING_STOCK: (ui+'playing_page.bin', english_ui(PLAYING_PAGE, playing_stock(cat(ui+'playing_page.bin')))), **set_pages}
     added = []
     from art import images as theme_images
