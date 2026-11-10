@@ -10607,90 +10607,101 @@ print(f'Coverflow depth on MIPS: {rest_cost} instructions for the first paint (d
 # linear ping-pong of its own period across the zoom's margin, from the unzoomed crop. One timer
 # runs it while Home is on top, lit and still; a step repaints only the panel.
 SPLIT=O['HOME_SPLIT_W']; PW=375-SPLIT; X,Y,TICK=O['DRIFT_X_MS'],O['DRIFT_Y_MS'],O['DRIFT_TICK_MS']
-m=DepthMachine(); pan_counter=m.u.hook_add(UC_HOOK_BLOCK,count_block,begin=BASE,end=SCRATCH-1)  # before any code is cached
-m.budget=80_000_000  # filtering and sharpening a 1914 px cover passes 50 million
-m.open(); m.top=m.home; m.word(m.home+O['W_PARENT'],m.wm); np=m.node('window','playing_page')
-m.byte(syms['g_playcover_type'],1); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')
+# Split's art stays still in this fork (coverflow.c HOME_PAN 0, the user's choice): the pan's checks run only with it on.
+HOME_PAN_ON=re.search(r'#define HOME_PAN (\d)',(ROOT/'patch/coverflow.c').read_text()).group(1)=='1'
 def paint_home(): m.call(address=HOOKS['widget_on_paint_background'][0],args=(m.home,m.canvas,0,0),gap=0)
 def drifts(): return [t for t in m.timers.values() if t[1]==payload_syms['home_drift']]
-def invalidated(): return [(c[1],c[2] and tuple(signed(m.get(c[2]+4*i)) for i in range(4))) for c in m.calls if c[0]=='widget_invalidate_force']
-def tex_of(w,h):  # the last cover loaded (opaque) as home_tex leaves it, and its zoomed size
-    url,=m.pixels; px=struct.unpack(f'<{w*h}I',bytes(m.u.mem_read(m.pixels[url],w*h*4)))
-    fw,fh=(PW,-(-PW*h//w)) if PW*h>290*w else (-(-290*w//h),290); tw,th=fw*O['DRIFT_ZOOM_PCT']//100,fh*O['DRIFT_ZOOM_PCT']//100
-    out=[]
-    for y in range(th):
-        y0=y*h//th; y1=max((y+1)*h//th,y0+1)
-        for x in range(tw):
-            x0=x*w//tw; x1=max((x+1)*w//tw,x0+1); n=r=g=b=0
-            for sy in range(y0,y1,(y1-y0+3)//4):  # at most 4 x 4 samples
-                for p in px[sy*w+x0:sy*w+x1:(x1-x0+3)//4]: r+=p&255; g+=p>>8&255; b+=p>>16&255; n+=1
-            out.append(0xff000000|r//n|g//n<<8|b//n<<16)
-    def sharpen(line):  # home_sharpen: [-1,6,-1]/4 a channel, rounded and clamped, the ends their own neighbours
-        return [0xff000000|sum(min(max((6*q-p-n_+2)>>2,0),255)<<s for s,p,q,n_ in ((s,a>>s&255,b>>s&255,c_>>s&255) for s in (0,8,16)))
-                for a,b,c_ in zip([line[0]]+line[:-1],line,line[1:]+[line[-1]])]
-    rows=[sharpen(out[y*tw:(y+1)*tw]) for y in range(th)]  # across, then down
-    cols=[sharpen([rows[y][x] for y in range(th)]) for x in range(tw)]
-    rows=[[c_[y] for c_ in cols[:1]+cols+cols[-1:]*2] for y in range(th)]  # the edges a texel left and above, two right and below
-    rows=rows[:1]+rows+rows[-1:]*2
-    return dict(px=[p for r in rows for p in r],ts=tw+3,u0=(fw-PW)//2,v0=(fh-290)//2,rx=tw-fw,ry=th-fh)
-def at(r,period,t): t%=2*period; return r*256*((t if t<period else 2*period-t)>>4)//(period>>4)
-def bspline(t):  # bspline_w: the cubic B-spline's 4 weights at phase t/256, in 1/256
-    s=256-t; w0=(s**3+196608)//393216; w3=(t**3+196608)//393216; w1=(3*t**3+4*16777216-6*256*t*t+196608)//393216
-    return w0,w1,256-w0-w1-w3,w3
-def tap4(a,b,c_,d,w):  # tap4: 4 texels weighted, rounded
-    return (0xff000000|((a&0xff00ff)*w[0]+(b&0xff00ff)*w[1]+(c_&0xff00ff)*w[2]+(d&0xff00ff)*w[3]+0x800080)>>8&0xff00ff
-            |((a&0xff00)*w[0]+(b&0xff00)*w[1]+(c_&0xff00)*w[2]+(d&0xff00)*w[3]+0x8000)>>8&0xff00)
-def framed(c,t):  # the panel at phase t, as home_render filters it: across each cover row, then down
-    u,v=c['u0']*256+at(c['rx'],X,t),c['v0']*256+at(c['ry'],Y,t); ts,px=c['ts'],c['px']
-    wx,wy=bspline(u&255),bspline(v&255); i=(v>>8)*ts+(u>>8)  # texel -1, -1 from u, v
-    rows=[[tap4(*px[j+x:j+x+4],wx) for x in range(PW)] for j in range(i,i+293*ts,ts)]
-    out=[tap4(*k,wy) for y in range(290) for k in zip(*rows[y:y+4])]
-    return struct.pack(f'<{len(out)}I',*out)
-def drawn():
-    n=len(m.draws); m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0),gap=0)
-    assert len(m.draws)==n+1 and m.draws[-1][3]==(0,0,PW,290) and m.draws[-1][4]&1,m.draws[n:]
-    return m.draws[-1][5]
-# 319 square: fits 290 and zooms to 319, a texel a pixel; 638 square: each texel 2 x 2 averaged;
-# 1914 square: 6 x 6 sampled 3 x 3.
-m.art_size=(319,319); m.pixels.clear(); paint_home(); c=tex_of(319,319)
-assert m.nodes[m.art]['image']=='' and [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]==[SPLIT,0,PW,290]
-assert (c['u0'],c['v0'],c['rx'],c['ry'])==((290-PW)//2,0,29,29) and not drifts()
-assert drawn()==framed(c,0) and ('bitmap_lock_buffer_for_write',) in [x[:1] for x in m.calls]
-assert drawn()==framed(c,0) and ('bitmap_lock_buffer_for_write',) not in [x[:1] for x in m.calls]  # unmoved: not rendered again
-paint_home(); m.advance(0); assert len(drifts())==1  # it arms on the next paint
-m.calls.clear(); m.advance(TICK); assert set(invalidated())=={(m.home,(SPLIT,0,PW,290))},invalidated()
-assert drawn()==framed(c,TICK)!=framed(c,0)  # a tick moves it by a fraction of a pixel
-m.advance(1000-TICK); assert drawn()==framed(c,1000) and len(drifts())==1; passed()
-m.advance(TICK); instructions[0]=0; assert drawn()==framed(c,1000+TICK); frame_cost=instructions[0]
-# A stalled loop steps at most DRIFT_MAX_STEP_MS.
-tid=next(t for t,v in m.timers.items() if v[1]==payload_syms['home_drift']); m.timers[tid]=(m.now+5000,*m.timers[tid][1:])
-m.advance(5000); t=1000+TICK+O['DRIFT_MAX_STEP_MS']; assert drawn()==framed(c,t); passed()
-# Another window on top, the screen off, the lock screen or a slide: the next step removes the
-# timer and nothing repaints until Home paints again, resuming at the same phase with one timer.
-for cover_up in (lambda: setattr(m,'top',np),lambda: m.byte(syms['g_backlight_status'],0),
-                 lambda: m.byte(syms['g_lockscreen_pageflag'],1),lambda: setattr(m,'animating',1)):
-    cover_up(); m.advance(TICK); assert not drifts()
-    m.calls.clear(); m.advance(2000); assert not invalidated()
-    paint_home(); assert not drifts()  # still not showing
-    m.top=m.home; m.byte(syms['g_backlight_status'],1); m.byte(syms['g_lockscreen_pageflag'],0); m.animating=0; added=0
-    for _ in range(5): m.calls.clear(); paint_home(); added+=sum(x[:2]==('timer_add',payload_syms['home_drift']) for x in m.calls)
-    assert len(drifts())==1 and added==1 and drawn()==framed(c,t)
-    m.advance(400); t+=400; assert drawn()==framed(c,t)
-passed()
-# Layout (Home or Theme changed) drops the timer and reloads the cover; a new cover keeps the phase,
-# and a large one is box filtered.
-m.call(address=payload_syms['coverflow_home_layout'],args=(0,0,0,0),gap=0); assert not drifts()
-paint_home(); assert drawn()==framed(c,t); paint_home(); assert len(drifts())==1
-m.art_size=(638,638); m.pixels.clear(); m.byte(syms['g_playcover_type'],2)
-instructions[0]=0; paint_home(); filter_cost=instructions[0]; c=tex_of(638,638)
-assert drawn()==framed(c,t) and len(drifts())==1
-m.art_size=(1914,1914); m.pixels.clear(); m.byte(syms['g_playcover_type'],1)
-instructions[0]=0; paint_home(); big_cost=instructions[0]; m.u.hook_del(pan_counter); c=tex_of(1914,1914); assert drawn()==framed(c,t); passed()
-# A player cover too long for DRIFT_TEXELS stays still, even with a Coverflow thumbnail that
-# could pan; neither arms the timer.
-m.art_sizes={'externpic.jpg':(4000,100)}; m.byte(syms['g_playcover_type'],2); m.advance(TICK); paint_home(); m.advance(TICK); paint_home()
-assert not drifts() and m.nodes[m.art]['image'].endswith('externpic.jpg') and m.get(m.art+O['W_W'])==290*40; passed()
-print(f'Home pan on MIPS: {frame_cost} instructions a frame (every DRIFT_TICK_MS), {filter_cost} and {big_cost} to filter a 638 and a 1914 px cover once (payload only)')
+if not HOME_PAN_ON:  # a cover that would pan shows through the stock image, sized to its fit, and no timer arms
+    m=DepthMachine(); m.open(); m.top=m.home; m.word(m.home+O['W_PARENT'],m.wm)
+    m.byte(syms['g_playcover_type'],1); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')
+    m.art_size=(319,319); m.pixels.clear(); paint_home(); m.advance(TICK); paint_home(); m.advance(1000); paint_home()
+    assert not drifts() and m.nodes[m.art]['image']=='file:///tmp/coverpic.jpg',(drifts(),m.nodes[m.art].get('image'))
+    assert [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]==[SPLIT+int((PW-290)/2),0,290,290]; passed()
+if HOME_PAN_ON:
+    m=DepthMachine(); pan_counter=m.u.hook_add(UC_HOOK_BLOCK,count_block,begin=BASE,end=SCRATCH-1)  # before any code is cached
+    m.budget=80_000_000  # filtering and sharpening a 1914 px cover passes 50 million
+    m.open(); m.top=m.home; m.word(m.home+O['W_PARENT'],m.wm); np=m.node('window','playing_page')
+    m.byte(syms['g_playcover_type'],1); m.u.mem_write(syms['g_lastcover_url'],b'/p/A\0')
+    def paint_home(): m.call(address=HOOKS['widget_on_paint_background'][0],args=(m.home,m.canvas,0,0),gap=0)
+    def drifts(): return [t for t in m.timers.values() if t[1]==payload_syms['home_drift']]
+    def invalidated(): return [(c[1],c[2] and tuple(signed(m.get(c[2]+4*i)) for i in range(4))) for c in m.calls if c[0]=='widget_invalidate_force']
+    def tex_of(w,h):  # the last cover loaded (opaque) as home_tex leaves it, and its zoomed size
+        url,=m.pixels; px=struct.unpack(f'<{w*h}I',bytes(m.u.mem_read(m.pixels[url],w*h*4)))
+        fw,fh=(PW,-(-PW*h//w)) if PW*h>290*w else (-(-290*w//h),290); tw,th=fw*O['DRIFT_ZOOM_PCT']//100,fh*O['DRIFT_ZOOM_PCT']//100
+        out=[]
+        for y in range(th):
+            y0=y*h//th; y1=max((y+1)*h//th,y0+1)
+            for x in range(tw):
+                x0=x*w//tw; x1=max((x+1)*w//tw,x0+1); n=r=g=b=0
+                for sy in range(y0,y1,(y1-y0+3)//4):  # at most 4 x 4 samples
+                    for p in px[sy*w+x0:sy*w+x1:(x1-x0+3)//4]: r+=p&255; g+=p>>8&255; b+=p>>16&255; n+=1
+                out.append(0xff000000|r//n|g//n<<8|b//n<<16)
+        def sharpen(line):  # home_sharpen: [-1,6,-1]/4 a channel, rounded and clamped, the ends their own neighbours
+            return [0xff000000|sum(min(max((6*q-p-n_+2)>>2,0),255)<<s for s,p,q,n_ in ((s,a>>s&255,b>>s&255,c_>>s&255) for s in (0,8,16)))
+                    for a,b,c_ in zip([line[0]]+line[:-1],line,line[1:]+[line[-1]])]
+        rows=[sharpen(out[y*tw:(y+1)*tw]) for y in range(th)]  # across, then down
+        cols=[sharpen([rows[y][x] for y in range(th)]) for x in range(tw)]
+        rows=[[c_[y] for c_ in cols[:1]+cols+cols[-1:]*2] for y in range(th)]  # the edges a texel left and above, two right and below
+        rows=rows[:1]+rows+rows[-1:]*2
+        return dict(px=[p for r in rows for p in r],ts=tw+3,u0=(fw-PW)//2,v0=(fh-290)//2,rx=tw-fw,ry=th-fh)
+    def at(r,period,t): t%=2*period; return r*256*((t if t<period else 2*period-t)>>4)//(period>>4)
+    def bspline(t):  # bspline_w: the cubic B-spline's 4 weights at phase t/256, in 1/256
+        s=256-t; w0=(s**3+196608)//393216; w3=(t**3+196608)//393216; w1=(3*t**3+4*16777216-6*256*t*t+196608)//393216
+        return w0,w1,256-w0-w1-w3,w3
+    def tap4(a,b,c_,d,w):  # tap4: 4 texels weighted, rounded
+        return (0xff000000|((a&0xff00ff)*w[0]+(b&0xff00ff)*w[1]+(c_&0xff00ff)*w[2]+(d&0xff00ff)*w[3]+0x800080)>>8&0xff00ff
+                |((a&0xff00)*w[0]+(b&0xff00)*w[1]+(c_&0xff00)*w[2]+(d&0xff00)*w[3]+0x8000)>>8&0xff00)
+    def framed(c,t):  # the panel at phase t, as home_render filters it: across each cover row, then down
+        u,v=c['u0']*256+at(c['rx'],X,t),c['v0']*256+at(c['ry'],Y,t); ts,px=c['ts'],c['px']
+        wx,wy=bspline(u&255),bspline(v&255); i=(v>>8)*ts+(u>>8)  # texel -1, -1 from u, v
+        rows=[[tap4(*px[j+x:j+x+4],wx) for x in range(PW)] for j in range(i,i+293*ts,ts)]
+        out=[tap4(*k,wy) for y in range(290) for k in zip(*rows[y:y+4])]
+        return struct.pack(f'<{len(out)}I',*out)
+    def drawn():
+        n=len(m.draws); m.call(address=HOOKS['widget_on_paint_border'][0],args=(m.art,m.canvas,0,0),gap=0)
+        assert len(m.draws)==n+1 and m.draws[-1][3]==(0,0,PW,290) and m.draws[-1][4]&1,m.draws[n:]
+        return m.draws[-1][5]
+    # 319 square: fits 290 and zooms to 319, a texel a pixel; 638 square: each texel 2 x 2 averaged;
+    # 1914 square: 6 x 6 sampled 3 x 3.
+    m.art_size=(319,319); m.pixels.clear(); paint_home(); c=tex_of(319,319)
+    assert m.nodes[m.art]['image']=='' and [signed(m.get(m.art+O[k])) for k in ('W_X','W_Y','W_W','W_H')]==[SPLIT,0,PW,290]
+    assert (c['u0'],c['v0'],c['rx'],c['ry'])==((290-PW)//2,0,29,29) and not drifts()
+    assert drawn()==framed(c,0) and ('bitmap_lock_buffer_for_write',) in [x[:1] for x in m.calls]
+    assert drawn()==framed(c,0) and ('bitmap_lock_buffer_for_write',) not in [x[:1] for x in m.calls]  # unmoved: not rendered again
+    paint_home(); m.advance(0); assert len(drifts())==1  # it arms on the next paint
+    m.calls.clear(); m.advance(TICK); assert set(invalidated())=={(m.home,(SPLIT,0,PW,290))},invalidated()
+    assert drawn()==framed(c,TICK)!=framed(c,0)  # a tick moves it by a fraction of a pixel
+    m.advance(1000-TICK); assert drawn()==framed(c,1000) and len(drifts())==1; passed()
+    m.advance(TICK); instructions[0]=0; assert drawn()==framed(c,1000+TICK); frame_cost=instructions[0]
+    # A stalled loop steps at most DRIFT_MAX_STEP_MS.
+    tid=next(t for t,v in m.timers.items() if v[1]==payload_syms['home_drift']); m.timers[tid]=(m.now+5000,*m.timers[tid][1:])
+    m.advance(5000); t=1000+TICK+O['DRIFT_MAX_STEP_MS']; assert drawn()==framed(c,t); passed()
+    # Another window on top, the screen off, the lock screen or a slide: the next step removes the
+    # timer and nothing repaints until Home paints again, resuming at the same phase with one timer.
+    for cover_up in (lambda: setattr(m,'top',np),lambda: m.byte(syms['g_backlight_status'],0),
+                     lambda: m.byte(syms['g_lockscreen_pageflag'],1),lambda: setattr(m,'animating',1)):
+        cover_up(); m.advance(TICK); assert not drifts()
+        m.calls.clear(); m.advance(2000); assert not invalidated()
+        paint_home(); assert not drifts()  # still not showing
+        m.top=m.home; m.byte(syms['g_backlight_status'],1); m.byte(syms['g_lockscreen_pageflag'],0); m.animating=0; added=0
+        for _ in range(5): m.calls.clear(); paint_home(); added+=sum(x[:2]==('timer_add',payload_syms['home_drift']) for x in m.calls)
+        assert len(drifts())==1 and added==1 and drawn()==framed(c,t)
+        m.advance(400); t+=400; assert drawn()==framed(c,t)
+    passed()
+    # Layout (Home or Theme changed) drops the timer and reloads the cover; a new cover keeps the phase,
+    # and a large one is box filtered.
+    m.call(address=payload_syms['coverflow_home_layout'],args=(0,0,0,0),gap=0); assert not drifts()
+    paint_home(); assert drawn()==framed(c,t); paint_home(); assert len(drifts())==1
+    m.art_size=(638,638); m.pixels.clear(); m.byte(syms['g_playcover_type'],2)
+    instructions[0]=0; paint_home(); filter_cost=instructions[0]; c=tex_of(638,638)
+    assert drawn()==framed(c,t) and len(drifts())==1
+    m.art_size=(1914,1914); m.pixels.clear(); m.byte(syms['g_playcover_type'],1)
+    instructions[0]=0; paint_home(); big_cost=instructions[0]; m.u.hook_del(pan_counter); c=tex_of(1914,1914); assert drawn()==framed(c,t); passed()
+    # A player cover too long for DRIFT_TEXELS stays still, even with a Coverflow thumbnail that
+    # could pan; neither arms the timer.
+    m.art_sizes={'externpic.jpg':(4000,100)}; m.byte(syms['g_playcover_type'],2); m.advance(TICK); paint_home(); m.advance(TICK); paint_home()
+    assert not drifts() and m.nodes[m.art]['image'].endswith('externpic.jpg') and m.get(m.art+O['W_W'])==290*40; passed()
+    print(f'Home pan on MIPS: {frame_cost} instructions a frame (every DRIFT_TICK_MS), {filter_cost} and {big_cost} to filter a 638 and a 1914 px cover once (payload only)')
 
 # Accent (docs/internals.md#accent). The mapping: stock red blended with a neutral becomes the same
 # blend of the preset's red tone, alpha kept; greys, other hues and every Crimson color stay.
