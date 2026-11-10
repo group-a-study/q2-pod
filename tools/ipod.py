@@ -154,9 +154,12 @@ HOME_LIST_W = 375
 NP_TOP = 40
 NP_ICON = 50                     # the stock 50px control icons, centred in the top row
 NP_ICON_PAD = inc('NP_ICON_PAD')  # play_fav/play_order: 28px, centred, glyph ends 4px above
-# Fork-only: Classic's icon row (AirPlay, order, favourite) where Minimal's would sit on the screen NP_IPOD_ROW_UP
-# higher than Minimal's own, at Minimal's x and spacing (50 px frames, 6 px apart)
+# Fork-only: Classic's icon row (AirPlay, order, favourite): order where Minimal's sits on the screen when the row
+# is NP_IPOD_ROW_UP above Minimal's own; AirPlay NP_IPOD_ICON from it, edge to edge, favourite's glyph Minimal's
+# 56 px (50 + 6) from it: its frame, edge to edge with order's, NP_IPOD_FAV_W wide
 NP_IPOD_ROW_UP = 16
+NP_IPOD_ICON = inc('NP_IPOD_ICON')
+NP_IPOD_FAV_W = inc('NP_IPOD_FAV_W')
 NP_MARGIN = 16
 NP_TEXT_W = 165
 NP_TITLE_PX = inc('NP_TITLE_PX')  # the title over the NP_META_PX artist and album, as Apple's hierarchy
@@ -632,17 +635,20 @@ def playing_page(root, g=SET0):
     text_w = 375 - NP_MARGIN - text_x
     # Favourite centres beneath More; leave 6px between its target and shuffle/order. The row ends
     # with the art, clear of the dots: the 28px glyphs, centred, end 15px above their frame's bottom.
-    # Fork-only, Classic's: the row where Minimal's would sit NP_IPOD_ROW_UP higher on the screen, at
-    # Minimal's x and spacing, whatever Classic's own art and bar; AirPlay (airplay.c) takes the same gap.
+    # Fork-only, Classic's: order centred where Minimal's would sit NP_IPOD_ROW_UP higher on the screen,
+    # whatever Classic's own art and bar, AirPlay (airplay.c) and favourite's frame beside it edge to edge: AirPlay
+    # NP_IPOD_ICON wide, favourite NP_IPOD_FAV_W, so its glyph sits at Minimal's spacing.
     text_icons_y = art_y + art - NP_ICON + NP_ICON_PAD
     icons_y = text_icons_y
-    fav_x = named['img_more'][1][0]
+    fav_x, icon_w, gap = named['img_more'][1][0], NP_ICON, 6
     if g.np_ipod:
-        fav_x = with_geometry(SET0).NP_ICONS_END - NP_ICON
+        mode_c = with_geometry(SET0).NP_ICONS_END - NP_ICON - 6 - NP_ICON // 2  # Minimal's order, centred
+        icon_w, gap = NP_IPOD_ICON, 0
+        fav_x = mode_c - icon_w // 2 + icon_w + gap
         icons_y = SET0.bar + NP_TOP + NP_ART_Y + NP_ART - NP_ICON + NP_ICON_PAD - NP_IPOD_ROW_UP - g.bar - (NP_TOP - lift)
-    for name, x in (('img_playmode', fav_x - NP_ICON - 6), ('img_fav', fav_x)):
+    for name, x, w in (('img_playmode', fav_x - icon_w - gap, icon_w), ('img_fav', fav_x, NP_IPOD_FAV_W if g.np_ipod else icon_w)):
         buttons[3].remove(named[name])
-        named[name][1] = [x, icons_y, NP_ICON, NP_ICON]
+        named[name][1] = [x, icons_y, w, NP_ICON]
     top = art_y + (text_icons_y - NP_ICON_PAD - art_y - (28 + 6 + 22 + 6 + 22 + g.np_ipod * (6 + 20))) // 2
     if g.np_ipod:  # the text starts under More, "3 of 12" under the album
         top = max(top, lift - 2)

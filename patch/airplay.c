@@ -209,7 +209,7 @@ static int air_gone(void *win, void *event) {
 void airplay_button(void *win) {
     void *mode = widget_lookup(win, "img_playmode", 1), *fav = widget_lookup(win, "img_fav", 1);
     if (!mode) return;
-    /* the row's own gap between order and favourite (tools/ipod.py), 6 px */
+    /* the row's own gap between order's frame and favourite's: 6 px, Classic's none (tools/ipod.py) */
     int gap = fav ? I(fav, W_X) - I(mode, W_X) - I(mode, W_W) : 6;
     void *b = image_create(P(mode, W_PARENT), I(mode, W_X) - I(mode, W_W) - gap, I(mode, W_Y),
                            I(mode, W_W), I(mode, W_H));
