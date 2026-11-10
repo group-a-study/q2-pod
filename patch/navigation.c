@@ -3542,7 +3542,7 @@ static void lyric_glide(void *lrc, int to) {
 
 /* The Now Playing timer's follow (LYRIC_FOLLOW in tools/build.py): stock scrolls to the row three
  * lines above the current one, which past the end clamps to it. iPod: lyrics the wheel or a finger
- * moved stay (lyric_held) until Now Playing goes or another song starts, and a finger on the
+ * moved stay (lyric_held) until the page swipes away or another song starts, and a finger on the
  * screen keeps them too; on the page, the follow glides. The lyrics page follows its own playing
  * line (lyric_follow). */
 int ringnav_lyric_follow(void *lrc, int x, int y, int ms) {
@@ -4220,8 +4220,8 @@ static int scrub_expire(const void *info) {
 
 /* The lyrics: stock's 250 ms timer scrolls scroll_lrc to the current line whenever it is elsewhere.
  * Once the wheel or a finger moves them they stay (ringnav_lyric_follow), while the timer keeps the
- * bar and the highlight going, until Now Playing goes or another song starts, a swipe to another
- * page and back included. A scrub under way ends first. */
+ * bar and the highlight going, until the page swipes away (lyric_poll) or another song starts; back
+ * on the page they follow again. A scrub under way ends first. */
 static void lyric_hold(void) {
     scrub_end();
     st.lyric_held = 1;
@@ -4265,8 +4265,8 @@ static void lyric_snap(void *lrc) {
  * timeout itself. While a finger stays on the wheel they stay where it put them; let go, they glide
  * to the nearest row top (lyric_snap). A finger that came down on the lyrics and dragged them holds
  * them as the wheel does; stock's scroll animation stops as it lands, so only the finger moves
- * them, and a swipe that brings the page in holds nothing. A swipe to another page and back keeps
- * the hold; leaving Now Playing drops it (np_gone). Another song starts at the top, its hold
+ * them, and a swipe that brings the page in holds nothing. A swipe to another page drops the hold,
+ * as does leaving Now Playing (np_gone). Another song starts at the top, its hold
  * gone. The lyrics page's rows are its lines, a tick's worth a line. */
 #define LYRIC_ROW_PX 20
 
@@ -4372,6 +4372,9 @@ static void lyric_poll(void) {
     }
     int page = lrc && st.np_slide && widget_get_prop_int(st.np_slide, "value", 0) == 1;
     if (st.np_full && !page) np_full(0); /* full-screen lyrics end off their page */
+    /* A swipe off the lyrics page drops the hold, so back on it they follow the song (fork-only:
+     * upstream keeps the hold until Now Playing goes; the user keeps this rule). */
+    if (!page) st.lyric_held = 0;
     int touch = lrc && window_manager_get_top_window(wm) == st.np_win && pointer_down();
     int shown = page && lyrics_shown(),
         on = shown && widget_count_children(lrc) && mclGetLyricSize() > 0;
