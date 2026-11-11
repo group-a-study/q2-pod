@@ -948,9 +948,9 @@ class AppStore:
         self.page = w.ui.top()
 
     def rows(self):
-        """The apps' rows, under Check for Updates."""
-        first, *apps = self.w.ui.rows(self.page)
-        assert first[0] == self.CHECK
+        """The apps' rows, under Check for Updates and above Add an App."""
+        first, *apps, add = self.w.ui.rows(self.page)
+        assert first[0] == self.CHECK and add == ('Add an App', 'From its GitHub link, on your phone')
         return apps
 
     def detail(self, name):

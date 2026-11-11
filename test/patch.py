@@ -17634,15 +17634,19 @@ def shelf_job(m,ms=500):
     worker,arg=m.threads[-1]; assert m.call(address=worker,args=(arg,0,0,0),gap=0,count=50_000_000)==0; m.advance(ms,clear=False)
 KILL='killall -9 librespot aplay'
 LIST='/mnt/mmc/.q2/sources.list'
+# build.py --extra-app's lines (SH_EXTRA), after the list's apps uninstalled, then Add an App, the last row
+EXTRA=[n for line in manifest.get('extra_apps',[]) for n in ((line.split(' ',1)[1] if ' ' in line else line.split('/',1)[1]),'Install')]
+ADD=['Add an App','From its GitHub link, on your phone']
 m=ShelfMachine({LIST:bytearray((ROOT/'sources.list').read_bytes()),SPOT_TAG:bytearray(b'q2-v1.8'),SPOT_FILES:bytearray(b'.spotify/run\n.spotify/librespot\n'),
                 '/mnt/mmc/.spotify/run':bytearray(b'sh'),'/mnt/mmc/.spotify/librespot':bytearray(b'ELF')})
 m.rockbox_mode=0; m.wifi=-1; apps_open(m)
 BLANK=m.labels()[2]; assert BLANK in ('',' ')  # Check for Updates' blank detail: ' ' under a theme's separators
-assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install'] and not m.threads; passed()  # no themes without Rockbox; the card apps last
+assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']+EXTRA+ADD and not m.threads; passed()  # no themes without Rockbox; the card apps last
 m.close(); m.wifi=3; m.rockbox_mode=0o100755; m.dirs['/mnt/mmc/.spotify']=[]; apps_open(m)
-assert m.labels()==['App Store','Check for Updates','Checking…','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']
+assert m.labels()==['App Store','Check for Updates','Checking…','Rockbox','Update','Rockbox Themes','Install','Spotify','Installed','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']+EXTRA+ADD
 m.reply=(ROOT/'test/shelf/q2-librespot.json').read_bytes(); shelf_job(m)
-assert m.opts[10002]=='https://api.github.com/repos/DiamondBond/q2-groovebox/releases/latest' and m.opts[10018]=='Q2Pod'  # the last of eleven
+LAST=(manifest.get('extra_apps') or ['DiamondBond/q2-groovebox'])[-1].split(' ')[0]  # the last of the list, its extra's after it
+assert m.opts[10002]==f'https://api.github.com/repos/{LAST}/releases/latest' and m.opts[10018]=='Q2Pod'
 assert m.opts[10065]=='/etc/scrobble-ca.pem' and m.opts[64]==1 and m.opts[81]==2 and m.opts[20108]
 assert m.labels()[8]=='Update' and m.labels()[2]==BLANK and '/tmp/q2-shelf.json' not in m.files  # q2-v1.8 against the latest q2-v1.9
 assert m.toasts[-1][3]=='1 app can be updated'; passed()  # the opening check's end, the page on top
@@ -17663,7 +17667,7 @@ m.close(); m.wifi=3; m.now+=11*60*1000; apps_open(m); assert len(m.threads)==5
 m.row(2); assert m.toasts[-1][3]=='Stopped checking for updates'; shelf_job(m); assert len(m.threads)==5 and m.toasts[-1][3]=='Stopped checking for updates'; passed()
 m.close(); m.rockbox_mode=0; m.dirs.pop('/mnt/mmc/.spotify'); m.reply=(ROOT/'test/shelf/q2-rockbox.json').read_bytes()
 toasts=len(m.toasts); apps_open(m); shelf_job(m); assert len(m.toasts)==toasts  # the opening check: nothing to update, nothing said
-assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']  # not stopped: checked again
+assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']+EXTRA+ADD  # not stopped: checked again
 m.row(1); assert m.labels()[4]=='Starts at power-on; Boot to changes that. Press again to install' and len(m.threads)==6
 m.row(1); assert len(m.threads)==7 and m.labels()[4]=='Checking…'; m.row(1); shelf_job(m); assert m.toasts[-1][3]=='Download cancelled'
 m.free=10<<20; m.row(1); m.row(1); shelf_job(m)  # the zip (13018581 bytes) and 64 MB left over
@@ -17677,7 +17681,7 @@ assert m.moves[-2:]==['/mnt/mmc/.q2/apps/rockbox.files','/mnt/mmc/.q2/apps/rockb
 assert m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2' and m.files['/mnt/mmc/.rockbox/fonts/a b.fnt']==b'f'
 assert m.files['/mnt/mmc/.q2/apps/rockbox.files']==b'.rockbox/rockbox\n.rockbox/codecs/flac.codec\n.rockbox/fonts/a b.fnt\n'
 assert not [f for f in m.files if '.q2/staging' in f] and 'sync' in m.systems; passed()
-assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']; passed()  # the rows built again
+assert m.labels()==['App Store','Check for Updates',BLANK,'Rockbox','Installed','Rockbox Themes','Install','Spotify','Install','Deezer','Install','Soulseek','Install','File Browser','Install','Subsonic','Install','Podcasts','Install','Live Music Archive','Install','Buddy','Install','Groovebox','Install']+EXTRA+ADD; passed()  # the rows built again
 m.listing='        1  10-06-2026 13:18   .rockbox/../../x\n'; m.files.pop('/mnt/mmc/.q2/apps/rockbox.tag'); m.row(1); shelf_job(m)
 assert m.toasts[-1][3]=='The download is not a usable app' and m.files['/mnt/mmc/.rockbox/rockbox']==b'ELF3.2'; passed()
 m.close(); passed()
@@ -17685,16 +17689,16 @@ m.close(); passed()
 # fetched list (its bad lines skipped) is kept on the card and its rows shown; a list with no app
 # leaves the one in use.
 m=ShelfMachine(); m.rockbox_mode=0; m.wifi=-1; apps_open(m)
-assert m.labels()==['App Store','Check for Updates','Connect to Wi-Fi to load the list'] and not m.threads
+assert m.labels()==['App Store','Check for Updates','Connect to Wi-Fi to load the list']+EXTRA+ADD and not m.threads
 m.row(0); assert m.toasts[-1][3]=='Connect to Wi-Fi first' and not m.threads; passed()
 m.wifi=3; m.row(0); assert m.labels()[2]=='Checking…' and len(m.threads)==1; m.row(0); assert len(m.threads)==1  # checking already
-m.codes=[404]; shelf_job(m); assert m.toasts[-1][3]=="Can't reach GitHub" and m.labels()[1:]==['Check for Updates','Connect to Wi-Fi to load the list']
+m.codes=[404]; shelf_job(m); assert m.toasts[-1][3]=="Can't reach GitHub" and m.labels()[1:]==['Check for Updates','Connect to Wi-Fi to load the list']+EXTRA+ADD
 m.row(0); assert len(m.threads)==2; passed()  # failed: the next press fetches again
 m.reply=b'# apps\nme/q2-foo Foo\nme/q2-Bad\n'; shelf_job(m)
-assert m.labels()==['App Store','Check for Updates',BLANK,'Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'
+assert m.labels()==['App Store','Check for Updates',BLANK,'Foo','Install']+EXTRA+ADD and m.files[LIST]==b'me/q2-foo Foo\n'
 assert m.toasts[-1][3]=='All apps are up to date'; passed()  # pressed: said; foo's release is no JSON, so none
 m.close(); m.now+=11*60*1000; m.reply=b'nothing'; apps_open(m); shelf_job(m)
-assert m.labels()==['App Store','Check for Updates',BLANK,'Foo','Install'] and m.files[LIST]==b'me/q2-foo Foo\n'; m.close(); passed()
+assert m.labels()==['App Store','Check for Updates',BLANK,'Foo','Install']+EXTRA+ADD and m.files[LIST]==b'me/q2-foo Foo\n'; m.close(); passed()
 
 # Resume: once a second the UI loop polls the playing track; one of Q2POD RESUMEMIN minutes (30) or
 # longer keeps its place in a ring written whole to /mnt/data (a .tmp, renamed), every RESUME_SAVE_S

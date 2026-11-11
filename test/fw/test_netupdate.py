@@ -22,13 +22,13 @@ _n = int(TAG.replace(b'.', b'')) + 1
 NEWER = b'%d.%d.%d' % (_n // 100, _n // 10 % 10, _n % 10)
 OLDER = b'0.9.9'
 
-SH_MAX = 16
+SH_MAX = 24
 SH_CAP = 1 << 30
 SH_OK, SH_NET, SH_SPACE, SH_CARD, SH_MISSING, SH_BAD, SH_CANCELLED, SH_BUSY = range(8)
 NU_IDLE, NU_RUNNING, NU_DONE, NU_LATEST, NU_NET, NU_MISSING, NU_CARD, NU_CANCELLED = range(8)
 JOB_CHECK, JOB_INSTALL, JOB_REMOVE, JOB_ERASE = 1, 2, 3, 4
 ST_INSTALL, ST_UPDATE, ST_INSTALLED = range(3)
-ROW_CHECK = SH_MAX
+ROW_CHECK, ROW_ADD = SH_MAX, SH_MAX + 1
 STAGING = '/mnt/mmc/.q2/staging'
 JSON_PATH = b'/tmp/q2-shelf.json'
 SHELF = pathlib.Path(__file__).resolve().parents[1]/'shelf'
@@ -41,8 +41,8 @@ class App(C.Structure):
 
 class Sh(C.Structure):
     _fields_ = [('thread', C.c_ulong), *((n, C.c_int) for n in ('running', 'cancel', 'percent', 'stage', 'result', 'job', 'app', 'armed', 'rows', 'n')),
-                ('map', C.c_int * (SH_MAX + 1)), ('manual', C.c_int), ('need', C.c_uint), ('checked', C.c_ulonglong), ('next', App * SH_MAX),
-                ('page', C.c_void_p), ('row', C.c_void_p * (SH_MAX + 1))]
+                ('map', C.c_int * (SH_MAX + 2)), ('manual', C.c_int), ('need', C.c_uint), ('checked', C.c_ulonglong), ('next', App * SH_MAX),
+                ('page', C.c_void_p), ('row', C.c_void_p * (SH_MAX + 2))]
 
 
 class Nu(C.Structure):
@@ -379,6 +379,7 @@ def apps(fw, *lines):
     table = (App * SH_MAX).in_dll(fw.lib, 'shelf_apps')
     n = fw.fn('shelf_sources', C.c_int, C.c_char_p, C.c_void_p, C.c_int)(b'\n'.join(lines), table, SH_MAX)
     fw.var('shelf_n', C.c_int).value = n
+    fw.var('netupdate__sh_listed', C.c_int).value = n > 0  # a list loaded, as the page's from the card's
     return table
 
 
@@ -1027,8 +1028,9 @@ class Page:
 
 def test_rows_say_install_under_check_for_updates(fw):
     p = Page(fw, b'me/foo', b'me/bar')
-    assert p.sh.rows == 3 and p.sh.map[0] == ROW_CHECK and p.label(0) == ''
+    assert p.sh.rows == 4 and p.sh.map[0] == ROW_CHECK and p.label(0) == ''
     assert p.label(1) == 'Install' and p.label(2) == 'Install'
+    assert p.sh.map[3] == ROW_ADD and p.label(3) == 'From its GitHub link, on your phone'  # Add an App, last
 
 
 def test_a_press_installs_at_once(fw):
@@ -1083,7 +1085,7 @@ def test_download_progress_on_the_row(fw):
 
 def test_with_no_list_check_for_updates_loads_it(fw):
     p = Page(fw)
-    assert p.sh.rows == 1 and p.sh.map[0] == ROW_CHECK and p.label(0) == 'Connect to Wi-Fi to load the list'
+    assert p.sh.rows == 2 and p.sh.map[0] == ROW_CHECK and p.label(0) == 'Connect to Wi-Fi to load the list'
     p.click(0)
     assert p.sh.job == JOB_CHECK and p.sh.app == 0 and p.sh.manual == 1 and p.label(0) == 'Checking…'
 
@@ -1170,10 +1172,10 @@ def test_the_next_check_isnt_check_for_updates_unless_pressed_again(fw):
 
 def test_rockbox_themes_show_only_with_rockbox(fw):
     p = Page(fw, b'x/q2-rockbox', b'x/q2-rockbox-themes')
-    assert p.sh.rows == 2
+    assert p.sh.rows == 3
     p.card.files[b'/mnt/mmc/.rockbox/rockbox'] = b''
     fw.fn('netupdate__sh_rows', None)()
-    assert p.sh.rows == 3
+    assert p.sh.rows == 4
 
 
 def test_a_press_while_checking_stops_the_check(fw):
@@ -1673,9 +1675,9 @@ class Store:
         return self.text.get(self.sh.row[0])
 
     def labels(self):
-        """The apps' rows, under Check for Updates."""
-        assert self.sh.map[0] == ROW_CHECK
-        return [self.text.get(self.sh.row[r]) for r in range(1, self.sh.rows)]
+        """The apps' rows, under Check for Updates and above Add an App."""
+        assert self.sh.map[0] == ROW_CHECK and self.sh.map[self.sh.rows - 1] == ROW_ADD
+        return [self.text.get(self.sh.row[r]) for r in range(1, self.sh.rows - 1)]
 
 
 def test_the_store_loads_its_list_then_not_again_for_ten_minutes(fw):

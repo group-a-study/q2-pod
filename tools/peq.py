@@ -182,6 +182,9 @@ LIBC = {
     'system': ('int', 'const char *'),
     'waitpid': ('int', 'int, int *, int'), '__errno_location': ('int *', 'void'), 'socket': ('int', 'int, int, int'), 'close': ('int', 'int'),
     'connect': ('int', 'int, const void *, unsigned'),
+    # The App Store's phone page (netupdate.c): its listening socket
+    'bind': ('int', 'int, const void *, unsigned'), 'listen': ('int', 'int, int'),
+    'setsockopt': ('int', 'int, int, int, const void *, unsigned'),
     'recv': ('int', 'int, void *, unsigned, int'),
     'select': ('int', 'int, void *, void *, void *, void *'),
     'getsockopt': ('int', 'int, int, int, void *, unsigned *'),
@@ -198,7 +201,7 @@ LIBC = {
 }
 
 # The payload's C beside navigation.c (build.py compile_payload), in link order; test/fw builds the same set.
-UI_SOURCES = ['peq.c', 'peq_ui.c', 'coverflow.c', 'coverflow_thumb.c', 'library_scope.c', 'scrobble.c', 'photos.c', 'books.c', 'games.c', 'visualizer.c', 'playback.c', 'upnext.c', 'spotify.c', 'addon.c', 'addon_library.c', 'radio.c', 'tidal.c', 'netupdate.c', 'onlinematch.c', 'crossfade.c', 'nightshift.c', 'headset.c', 'lockscreen.c', 'chapters.c', 'lyrics.c', 'xiph.c', 'airplay.c']
+UI_SOURCES = ['peq.c', 'peq_ui.c', 'coverflow.c', 'coverflow_thumb.c', 'library_scope.c', 'scrobble.c', 'photos.c', 'books.c', 'games.c', 'visualizer.c', 'playback.c', 'upnext.c', 'spotify.c', 'addon.c', 'addon_library.c', 'radio.c', 'tidal.c', 'netupdate.c', 'shelf_phone.c', 'qr.c', 'onlinematch.c', 'crossfade.c', 'nightshift.c', 'headset.c', 'lockscreen.c', 'chapters.c', 'lyrics.c', 'xiph.c', 'airplay.c']
 
 def function_macros(address):
     """Each stock function in address (name -> its C address) as a macro calling it there."""

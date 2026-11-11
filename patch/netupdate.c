@@ -22,17 +22,7 @@ const char *netupdate_tag(const char *location) {
 #define SH_DIR CARD "/.q2"
 #define STAGING SH_DIR "/staging"
 #define SH_CAP (1u << 30) /* the most an install may unpack */
-#define SH_MAX 16
 
-enum { SH_OK, SH_NET, SH_SPACE, SH_CARD, SH_MISSING, SH_BAD, SH_CANCELLED, SH_BUSY };
-/* repo: its GitHub owner/name; id: the repo's name less "q2-", for the card folder .<id>, the tag
- * and file list; keep: unzip -x patterns an update never writes (the user's); bin: the app's
- * binary, present without a tag file meaning a manual install, and moved after every other file:
- * power-on runs Rockbox's. */
-typedef struct {
-    char name[32], id[16], repo[80], dir[17], bin[40], latest[32];
-    const char *keep;
-} shelf_app;
 shelf_app shelf_apps[SH_MAX];
 int shelf_n;
 #define apps shelf_apps
@@ -496,12 +486,14 @@ int ringnav_fwupdate(void *win, void *ctx) {
     return result;
 }
 
-/* The Apps page (System settings): Check for Updates, then a row per app in sources.list, its state
- * as the row's detail. One job at a time on one thread: a check (the list, then the latest tags) on
- * opening or from Check for Updates, an install, a remove or Spotify's erase (Streaming →
- * Configuration's, shelf_erase). Leaving the page leaves it running; its progress shows when the
- * page opens again. */
+/* The Apps page (System settings): Check for Updates, then a row per app in sources.list, those of
+ * SH_EXTRA (tools/build.py --extra-app) and SH_MINE (Add an App's, shelf_phone.c), its state as the
+ * row's detail, then Add an App. One job at a time on one thread: a check (the list, then the
+ * latest tags) on opening or from Check for Updates, an install, a remove or Spotify's erase
+ * (Streaming → Configuration's, shelf_erase). Leaving the page leaves it running; its progress shows
+ * when the page opens again. */
 #define SH_JSON "/tmp/q2-shelf.json"
+#define SH_LOOKUP_JSON "/tmp/q2-shelf-phone.json" /* shelf_lookup's, beside a job's */
 #define SH_LIST SH_DIR "/sources.list" /* the last list fetched, for the page offline */
 #define SH_LIST_URL "https://raw.githubusercontent.com/DiamondBond/q2-pod/main/sources.list"
 #define SH_RESERVE (64ull << 20) /* left free on the card beyond a download or what it unpacks */
@@ -509,18 +501,20 @@ int ringnav_fwupdate(void *win, void *ctx) {
 #define SH_RECHECK_MS (60 * 1000ull) /* Check for Updates' least gap: an API request per app */
 enum { JOB_CHECK = 1, JOB_INSTALL, JOB_REMOVE, JOB_ERASE };
 enum { ST_INSTALL, ST_UPDATE, ST_INSTALLED };
-enum { ROW_CHECK = SH_MAX }; /* map's row that is no app: Check for Updates, the first */
+/* map's rows that are no app: Check for Updates, the first, and Add an App, the last */
+enum { ROW_CHECK = SH_MAX, ROW_ADD };
 
 static struct {
     unsigned long thread;
     volatile int running, cancel, percent, stage, result; /* cancel, percent: progress()'s pair */
-    int job, app, armed, rows, n, map[SH_MAX + 1];        /* map: a row's app or ROW_CHECK */
+    int job, app, armed, rows, n, map[SH_MAX + 2]; /* map: a row's app, ROW_CHECK or ROW_ADD */
     int manual;                                           /* the check is Check for Updates' */
     unsigned need;                                        /* SH_SPACE's MB */
     unsigned long long checked;                           /* now_ms of the last whole check */
     shelf_app next[SH_MAX]; /* the check's list (n apps), the page's once the check ends */
-    void *page, *row[SH_MAX + 1];
+    void *page, *row[SH_MAX + 2];
 } sh __attribute__((section(".scratch")));
+static int sh_listed; /* the page's list holds sources.list, fetched or the card's */
 
 static int is(int i, const char *id) { return i >= 0 && i < shelf_n && !strcmp(apps[i].id, id); }
 
@@ -541,14 +535,21 @@ static unsigned file_mode(const char *path) {
     return __xstat(3, path, info) ? 0 : info[5] & 0170000;
 }
 
-/* url's body (1 MB at most) through SH_JSON, NUL-terminated; 0 unless a whole 200. */
-static char *get(const char *url, long *code) {
+/* url's body (1 MB at most) through the file tmp, NUL-terminated; 0 unless a whole 200. xfer:
+ * fetch's cancel flag and percentage. */
+static char *get_via(const char *url, long *code, const char *tmp, volatile int *xfer) {
     unsigned n = 0;
-    void *f = fopen(SH_JSON, "wb");
-    int err = !f || fetch(url, f, 0, 0, code, &sh.cancel);
+    void *f = fopen(tmp, "wb");
+    int err = !f || fetch(url, f, 0, 0, code, xfer);
     err = (f && fclose(f)) || err;
-    char *body = err || *code != 200 ? 0 : read_all(SH_JSON, 1u << 20, &n);
-    unlink(SH_JSON);
+    char *body = err || *code != 200 ? 0 : read_all(tmp, 1u << 20, &n);
+    unlink(tmp);
+    return body;
+}
+
+/* url's body, as get_via, through SH_JSON, the job's cancel. */
+static char *get(const char *url, long *code) {
+    char *body = get_via(url, code, SH_JSON, &sh.cancel);
     sh.percent = 0;
     return body;
 }
@@ -567,28 +568,62 @@ static int release(shelf_app *a, char *tag, char *url, unsigned *size) {
     return r;
 }
 
+/* Whether one of list's n apps has id. */
+static int has(const shelf_app *list, int n, const char *id) {
+    for (int k = 0; k < n; ++k)
+        if (!strcmp(list[k].id, id)) return 1;
+    return 0;
+}
+
+/* out's first n apps (a list's), then prev's (pn) that are installed but on none of the lists, so
+ * they can still be removed, then SH_EXTRA's and SH_MINE's not among them; each with prev's latest
+ * tag where its repo is the same. The count; *kept (when given) where SH_EXTRA's and SH_MINE's
+ * start: the apps before it are those SH_LIST keeps. */
+static int compose(shelf_app *out, int n, const shelf_app *prev, int pn, int *kept) {
+    unsigned len = 0;
+    char *mine = read_all(SH_MINE, 1u << 16, &len), *text = calloc(1, sizeof SH_EXTRA + len + 1),
+         path[96];
+    shelf_app *more = calloc(SH_MAX, sizeof *more);
+    int m = 0;
+    if (text && more) {
+        memcpy(text, SH_EXTRA, sizeof SH_EXTRA - 1);
+        if (mine) memcpy(text + sizeof SH_EXTRA - 1, mine, len);
+        m = shelf_sources(text, more, SH_MAX);
+    }
+    for (int k = 0; k < pn && n < SH_MAX; ++k) {
+        snprintf(path, sizeof path, SH_DIR "/apps/%s.tag", prev[k].id);
+        if (!has(out, n, prev[k].id) && !has(more, m, prev[k].id) && file_mode(path))
+            out[n++] = prev[k];
+    }
+    if (kept) *kept = n;
+    for (int k = 0; k < m && n < SH_MAX; ++k)
+        if (!has(out, n, more[k].id)) out[n++] = more[k];
+    for (int i = 0; i < n; ++i)
+        for (int k = 0; !*out[i].latest && k < pn; ++k)
+            if (!strcmp(prev[k].id, out[i].id) && !strcmp(prev[k].repo, out[i].repo))
+                memcpy(out[i].latest, prev[k].latest, sizeof out[i].latest);
+    free(mine), free(text), free(more);
+    return n;
+}
+
 /* A check: the list fetched into sh.next, kept as SH_LIST with any app it dropped that is
- * still installed (so it can be removed), else the page's own; then each one's latest release.
- * Whether every release was checked: a list that failed is fetched again with the next check. */
+ * still installed (so it can be removed), else the page's own; SH_EXTRA's and SH_MINE's after them;
+ * then each one's latest release. Whether every release was checked: a list that failed is fetched
+ * again with the next check. */
 static int check(void) {
-    char path[96], tag[32], url[256], text[SH_MAX * 120];
+    char tag[32], url[256], text[SH_MAX * 120];
     unsigned size, m = 0;
     long code = 0;
     char *list = get(SH_LIST_URL, &code);
-    int n = list ? shelf_sources(list, sh.next, SH_MAX) : 0, fresh = n > 0, ok = 1;
+    int n = list ? shelf_sources(list, sh.next, SH_MAX) : 0, fresh = n > 0, ok = 1, kept = 0;
     free(list);
     if (!n) memcpy(sh.next, apps, sizeof apps), n = shelf_n; /* a bad list never replaces one */
-    for (int i = 0; fresh && i < shelf_n && n < SH_MAX; ++i) {
-        int listed = 0;
-        for (int k = 0; k < n; ++k) listed |= !strcmp(sh.next[k].id, apps[i].id);
-        app_file(path, sizeof path, i, ".tag");
-        if (!listed && file_mode(path)) sh.next[n++] = apps[i];
-    }
-    for (int k = 0; fresh && k < n; ++k)
+    if (!fresh && !sh_listed) sh.result = SH_NET, ok = 0; /* no list at all: said, and fetched next */
+    n = compose(sh.next, n, apps, shelf_n, &kept);
+    for (int k = 0; fresh && k < kept; ++k)
         m += snprintf(text + m, sizeof text - m, "%s %s\n", sh.next[k].repo, sh.next[k].name);
-    if (fresh) mkdir(SH_DIR, 0755), blob_io(SH_LIST, SH_LIST ".tmp", text, m, 1);
+    if (fresh) mkdir(SH_DIR, 0755), blob_io(SH_LIST, SH_LIST ".tmp", text, m, 1), sh_listed = 1;
     sh.n = n;
-    if (!n) sh.result = SH_NET, ok = 0; /* no list at all: said, and the next press fetches it */
     for (int k = 0; k < n && !sh.cancel; ++k) {
         int r = release(&sh.next[k], tag, url, &size);
         if (r == SH_MISSING) continue; /* checked: no release yet */
@@ -694,10 +729,12 @@ static void sh_text(int r) {
         busy = (sh.job == JOB_INSTALL || sh.job == JOB_REMOVE) && sh.app == i;
     char s[40];
     const char *t = s;
-    if (i == ROW_CHECK && sh.job == JOB_CHECK)
+    if (i == ROW_ADD)
+        t = "From its GitHub link, on your phone";
+    else if (i == ROW_CHECK && sh.job == JOB_CHECK)
         t = "Checking…";
     else if (i == ROW_CHECK) /* with no list yet, the press loads it */
-        t = !shelf_n ? "Connect to Wi-Fi to load the list" : theme()->sep[0].n ? " " : "";
+        t = !sh_listed ? "Connect to Wi-Fi to load the list" : theme()->sep[0].n ? " " : "";
     else if (busy && sh.cancel)
         t = "Cancelling…";
     else if (busy && sh.stage == 1 && sh.percent)
@@ -724,7 +761,8 @@ static void sh_refresh(void) {
 static void sh_told(int manual, const char *failed) {
     char s[40];
     int n = 0;
-    for (int r = 1; r < sh.rows; ++r) n += sh_tagged(sh.map[r]) == ST_UPDATE; /* past ROW_CHECK */
+    for (int r = 1; r < sh.rows; ++r) /* past ROW_CHECK, short of ROW_ADD */
+        n += sh.map[r] < SH_MAX && sh_tagged(sh.map[r]) == ST_UPDATE;
     if (n)
         snprintf(s, sizeof s, "%d app%s can be updated", n, n == 1 ? "" : "s"), toast(s);
     else if (manual && failed)
@@ -795,7 +833,9 @@ static void sh_start(int job, int i) {
 static int sh_click(void *ctx, void *event) {
     int r = (int)(long)ctx, i = sh.map[r], armed = sh.armed == r + 1;
     sh.armed = 0;
-    if (i == ROW_CHECK && sh.job == JOB_CHECK) {
+    if (i == ROW_ADD) { /* any time: what it adds joins the list once no job holds it */
+        if (need_link(sh_click, ctx)) phone_open();
+    } else if (i == ROW_CHECK && sh.job == JOB_CHECK) {
         sh.manual = 1; /* checking already, the opening check maybe: its end answers the press */
     } else if (sh.job == JOB_CHECK) { /* needs no answer: stopped, so the next press acts */
         sh.cancel = 1;
@@ -832,11 +872,12 @@ static int sh_closed(void *ctx, void *event) {
 }
 
 /* The rows: Check for Updates, then the list's apps in its order, Rockbox Themes only with Rockbox
- * on the card; built again when a job ends changes which. */
+ * on the card, then Add an App; built again when a job ends changes which. */
 static void sh_rows(void) {
-    int map[SH_MAX + 1] = { ROW_CHECK }, n = 1;
+    int map[SH_MAX + 2] = { ROW_CHECK }, n = 1;
     for (int i = 0; i < shelf_n; ++i)
         if (!is(i, "themes") || rockbox_available()) map[n++] = i;
+    map[n++] = ROW_ADD;
     if (sh.page && (n != sh.rows || memcmp(map, sh.map, sizeof map))) {
         memcpy(sh.map, map, sizeof map);
         sh.rows = 0;
@@ -844,7 +885,10 @@ static void sh_rows(void) {
         for (int r = 0; r < n; ++r)
             /* sh_text writes the detail: a blank one, or a theme would centre the name over it */
             sh.row[r] = page_row_detail(
-                view, r, map[r] == ROW_CHECK ? "Check for Updates" : apps[map[r]].name,
+                view, r,
+                map[r] == ROW_CHECK ? "Check for Updates"
+                : map[r] == ROW_ADD ? "Add an App"
+                                    : apps[map[r]].name,
                 theme()->sep[0].n ? " " : "", sh_click);
         sh.rows = n;
     }
@@ -879,6 +923,8 @@ int shelf_open(void *ctx, void *event) {
         unsigned n = 0;
         char *list = read_all(SH_LIST, 1u << 16, &n);
         shelf_n = shelf_sources(list, apps, SH_MAX);
+        sh_listed = shelf_n > 0;
+        shelf_n = compose(apps, shelf_n, 0, 0, 0);
         free(list);
     }
     sh_rows();
@@ -893,6 +939,51 @@ int shelf_open(void *ctx, void *event) {
     return 0;
 }
 
-/* Smart Wi-Fi (smart_wifi.c smart_needed): Network Update's download or an Apps job keeps the radio on. */
-int netupdate_busy(void) { return nu.state == NU_RUNNING || sh.job; }
+/* Add an App's (shelf_phone.c, peq.h): the list as the page would show it, from the card's files
+ * alone (the phone page's thread reads it). */
+int shelf_known(shelf_app *out) {
+    unsigned n = 0;
+    char *list = read_all(SH_LIST, 1u << 16, &n);
+    int k = shelf_sources(list, out, SH_MAX);
+    free(list);
+    return compose(out, k, 0, 0, 0);
+}
+
+/* repo's latest release, as install's (release): SH_OK with its tag and its zip's size; SH_MISSING
+ * with none (or no such repo), SH_BAD with no zip in it, SH_BUSY, SH_NET or SH_CANCELLED. xfer:
+ * fetch's cancel flag and percentage. */
+int shelf_lookup(const char *repo, char *tag, unsigned tn, unsigned *size, volatile int *xfer) {
+    char api[160], url[256];
+    long code = 0;
+    snprintf(api, sizeof api, "https://api.github.com/repos/%s/releases/latest", repo);
+    char *json = get_via(api, &code, SH_LOOKUP_JSON, xfer);
+    int r = xfer[0]                       ? SH_CANCELLED
+            : code == 404                 ? SH_MISSING
+            : code == 403 || code == 429  ? SH_BUSY
+            : !json                       ? SH_NET
+            : shelf_release(json, tag, tn, url, sizeof url, size) ? SH_OK
+                                                                  : SH_BAD;
+    free(json);
+    return r;
+}
+
+/* The page's list again after Add an App changed SH_MINE: the card's last list (none read, the
+ * page's own, as a check's), the apps installed that it dropped, SH_EXTRA's and SH_MINE's; the rows
+ * built again. 0, changing nothing, while a job runs (its app is a row of the list). */
+int shelf_reload(void) {
+    unsigned n = 0;
+    if (sh.job) return 0;
+    char *list = read_all(SH_LIST, 1u << 16, &n);
+    int k = shelf_sources(list, sh.next, SH_MAX);
+    free(list);
+    if (!k) memcpy(sh.next, apps, sizeof apps), k = shelf_n;
+    k = compose(sh.next, k, apps, shelf_n, 0);
+    memcpy(apps, sh.next, sizeof apps), shelf_n = k, sh.rows = -1;
+    sh_rows();
+    return 1;
+}
+
+/* Smart Wi-Fi (smart_wifi.c smart_needed): Network Update's download, an Apps job or Add an App's
+ * page keeps the radio on. */
+int netupdate_busy(void) { return nu.state == NU_RUNNING || sh.job || phone_running(); }
 #endif

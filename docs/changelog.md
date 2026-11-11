@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.7.7**:
+  - App Store: **Add an App**, the last row, adds an app that isn't on the list from its GitHub repo. It shows a QR code: scan it with a phone on the same Wi-Fi, paste the repo's link and press **Add**. Once GitHub shows a release with the app's zip, the app gets a row in the App Store, and pressing it installs it. The phone's page also removes what you added.
   - View Queue: under **Theme: Classic** the song playing is in the same font as the rows around it. It used to be larger and lighter than the rest, with a wide gap after its ▶.
   - Display: in **Appearance**, **Status Bar** is now the row under **Theme**, as it picks a theme's look for the bar. It used to sit under **Battery**.
   - Settings: on **Set date and time** and the **Sleep Timer**, a Centre press followed at once by **Next** or **Previous** no longer acts as well. It used to move on a field after the button and, after **Next** near the last field, set the clock or the timer before you meant to.

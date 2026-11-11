@@ -523,6 +523,32 @@ int groovebox_available(void); /* theme_engine.c: the Groovebox card app's binar
 #define SHORTCUT_GROOVEBOX 10  /* IPOD SHORTCUT's Groovebox, after the ten stock-era values */
 int page_keyup(void *ctx, void *event); /* navigation.c: Return leaves a payload page */
 int ringnav_localclass(int cls);        /* navigation.c: load_localclass_list's hook */
+/* netupdate.c's App Store (docs/internals.md#q2-shelf): an app of its list. repo: its GitHub
+ * owner/name; id: the repo's name less "q2-", for the card folder .<id>, the tag and file list;
+ * keep: unzip -x patterns an update never writes (the user's); bin: the app's binary, present
+ * without a tag file meaning a manual install, and moved after every other file: power-on runs
+ * Rockbox's. */
+#define SH_MAX 24
+typedef struct {
+    char name[32], id[16], repo[80], dir[17], bin[40], latest[32];
+    const char *keep;
+} shelf_app;
+int shelf_sources(const char *text, shelf_app *out, int max);
+/* The repos added on the phone page (shelf_phone.c), as sources.list's lines */
+#define SH_MINE "/mnt/mmc/.q2/my-sources.list"
+/* The list as the page would show it (SH_MAX apps into out), from the card's files: the last one
+ * fetched, SH_EXTRA's and SH_MINE's. A repo's latest release checked, as an install's: SH_OK with
+ * its tag and zip's size, else why not (xfer: a cancel flag, a percentage). The page's list read
+ * again after SH_MINE changed: 0 while a job holds it. */
+int shelf_known(shelf_app *out);
+int shelf_lookup(const char *repo, char *tag, unsigned tn, unsigned *size, volatile int *cancel);
+int shelf_reload(void);
+enum { SH_OK, SH_NET, SH_SPACE, SH_CARD, SH_MISSING, SH_BAD, SH_CANCELLED, SH_BUSY };
+/* shelf_phone.c: Add an App, the App Store's last row: its page on the phone, served while the QR
+ * page (addon_qr_page) shows its address; whether the server runs (it keeps Wi-Fi on). */
+int phone_open(void), phone_running(void);
+int addon_qr_page(const char *state, const char *title, void (*done)(void)); /* addon.c */
+int qr_hex(const char *data, unsigned n, int mask, char *hex, unsigned hn); /* qr.c */
 int shelf_open(void *ctx, void *event); /* netupdate.c: System settings' Apps page */
 const char *shelf_busy(void);           /* netupdate.c: the app folder a job replaces */
 int shelf_erase(int start);             /* netupdate.c: Spotify's erase, started or running */

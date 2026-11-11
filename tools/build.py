@@ -1589,7 +1589,7 @@ def patch_bluealsa(raw):
 
 STOCK_VERSION = 'V1.32'
 
-def stock_header(context, ranges, themes, dev=0, repo=REPO):
+def stock_header(context, ranges, themes, dev=0, repo=REPO, extra_apps=()):
     """stock.h, which the payload's C includes: context maps each CONTEXT_DATA name to the C address of
     its data (demo's symbol on the Q2; test/fw/host.py's own array), ranges are the fonts' range macros
     (subset_font) and themes theme.builtins()'s."""
@@ -1609,6 +1609,8 @@ def stock_header(context, ranges, themes, dev=0, repo=REPO):
                f'#define Q2POD_TAG "{"" if dev else VERSION}"',  # netupdate.c: the release tag, none when --dev
                f'#define Q2POD_DEV {1 if dev else 0}',  # navigation.c stale_note
                f'#define Q2POD_REPO "{repo}"',  # netupdate.c: the repo whose latest release it fetches
+               # netupdate.c: sources.list lines every App Store list gets after the fetched one's (--extra-app)
+               '#define SH_EXTRA ' + json.dumps(''.join(line + '\n' for line in extra_apps), ensure_ascii=False),
                f'#define Q2POD_UA "Q2Pod/{VERSION} (https://github.com/DiamondBond/q2-pod)"']  # onlinematch.c, as MusicBrainz asks
     header.append(f'#define THEME_N {len(themes)}')  # theme_engine.c setting_counts[]
     header.append(f'#define THEME_KEYS {len(theme_keys(themes))}')  # navigation.c st.own[], themes.inc theme_keys[]
@@ -1617,7 +1619,7 @@ def stock_header(context, ranges, themes, dev=0, repo=REPO):
     header.append(f'#define QS_LIT "{qs_lit()}"')  # navigation.c quick_page: Classic's buttons that are on
     return '\n'.join(header)+'\n'
 
-def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotator_lazy_clock=False, pwm_idle_clock=False, mcu_idle_sleep=False, flac_experiments='sync,lpc,output'):  # pragma: no mutate block
+def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotator_lazy_clock=False, pwm_idle_clock=False, mcu_idle_sleep=False, flac_experiments='sync,lpc,output', extra_apps=()):  # pragma: no mutate block
     from flac import selection
     flac_experiments = selection(flac_experiments)
     # Kernel-module experiments: no measured saving (docs/clock-gating.md, pwm-clock-gating.md,
@@ -1701,7 +1703,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
     from theme import builtins, emit, geometry_sets
     themes = builtins()
     (out/'stock.h').write_text(stock_header({name: f'0x{syms[name]:x}u' for name in CONTEXT_DATA},
-                                            [bold_ranges, classic_light_ranges], themes, dev, repo))
+                                            [bold_ranges, classic_light_ranges], themes, dev, repo, extra_apps))
     set_pages, redirects = {}, {}
     ui = 'release/assets/default/raw/ui/'
     for i, g in enumerate(geometry_sets(themes)[1:], 1):
@@ -2095,7 +2097,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, aic_idle_wait=False, rotato
         **({'aic_notifier': aic_notifier} if aic_notifier else {}),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
         audio_extension_calls=[dict(address=hex(a), original='0x0320f809', replacement=hex(jal(ps['ringnav_audio_extension']))) for a in AUDIO_EXTENSION_CALLS],
-        version=version, dev=dev, update_repo=repo, peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
+        version=version, dev=dev, update_repo=repo, extra_apps=list(extra_apps), peq=audio, bluealsa_sha256=sha(bluealsa), q2video_sha256=sha((out/'q2video').read_bytes()), q2boot_sha256=sha((out/'q2boot').read_bytes()), **({'q2remote_sha256': sha((out/'q2remote').read_bytes())} if dev else {}), compact_code=code_changes, changed_assets=changed_assets, logo_sha256=sha(logo_data),
         **({'rotator_clock': rotator} if rotator else {}),
         **({'pwm_clock': pwm} if pwm else {}),
         patch_symbols={n:hex(v) for n,v in ps.items() if n.startswith('stock_')},
@@ -2118,6 +2120,8 @@ if __name__ == '__main__':
                     help='FLAC fast paths (comma-separated subset; empty for stock FLAC)')
     ap.add_argument('--update-repo', default=REPO, metavar='OWNER/NAME',
                     help="GitHub repo whose latest release Network Update fetches (default: %(default)s), for a fork's test builds")
+    ap.add_argument('--extra-app', action='append', default=[], metavar='"OWNER/REPO [Name]"', dest='extra_apps',
+                    help="a sources.list line every App Store list gets after the fetched one's (repeatable), for a fork's test builds")
     ap.add_argument('--aic-idle-wait', action='store_true',
                     help='experimental: sleep the stopped PCM notifier until start or teardown (requires --dev)')
     ap.add_argument('--rotator-lazy-clock', action='store_true',
@@ -2126,6 +2130,9 @@ if __name__ == '__main__':
                     help='experimental: cooperative Linux/MCU PWM clock gating (requires --dev)')
     a=ap.parse_args()
     try:
-        build(a.zip,a.out.resolve(),a.logo,a.dev,a.update_repo,a.aic_idle_wait,a.rotator_lazy_clock,a.pwm_idle_clock,a.mcu_idle_sleep,a.flac_experiments)
+        for line in a.extra_apps:
+            if not re.fullmatch(r'[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]+( [^\x00-\x1f\x7f]{1,31})?', line):
+                raise ValueError(f'--extra-app {line!r}: not "OWNER/REPO [Name]"')
+        build(a.zip,a.out.resolve(),a.logo,a.dev,a.update_repo,a.aic_idle_wait,a.rotator_lazy_clock,a.pwm_idle_clock,a.mcu_idle_sleep,a.flac_experiments,a.extra_apps)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         ap.error(str(exc))

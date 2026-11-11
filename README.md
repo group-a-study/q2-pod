@@ -178,6 +178,8 @@ Your settings, ratings and play counts are kept. The updater skips a version tha
   </tr>
 </table>
 
+**Add an App**, the App Store's last row, adds any other app from its GitHub repo: scan its QR code with your phone, paste the repo's link, then install it on the Q2.
+
 <details>
 <summary><h2>Extras</h2></summary>
 

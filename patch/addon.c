@@ -1964,7 +1964,8 @@ static struct {
     unsigned timer, leave, seen; /* seen: the state file as last read, hashed */
     const char *state;
     int size;
-    char *hex; /* the code's rows, QR_HEX bytes calloc'd with the page */
+    char *hex;          /* the code's rows, QR_HEX bytes calloc'd with the page */
+    void (*done)(void); /* addon_qr_page's: told when the page closes */
 } qp __attribute__((section(".scratch")));
 
 static void set(void *w, const char *s) {
@@ -2036,11 +2037,13 @@ static int qr_keyup(void *ctx, void *event) {
 }
 
 static int qr_closed(void *ctx, void *event) {
+    void (*done)(void) = qp.done;
     (void)ctx, (void)event;
     stop_timer(&qp.timer);
     stop_timer(&qp.leave);
     free(qp.hex);
     memset(&qp, 0, sizeof qp);
+    if (done) done();
     return 0;
 }
 
@@ -2118,6 +2121,15 @@ static void qr_open(const char *state, const char *title) {
     qp.seen = 0; /* nothing read yet: no read hashes to 0 but by chance, and then only once */
     qr_refresh();
     qp.timer = timer_add(qr_tick, 0, 1000);
+}
+
+/* The QR page for a server of the firmware's own (shelf_phone.c's Add an App) on its status file
+ * state, title above; done when it closes. 0 when it can't open. */
+int addon_qr_page(const char *state, const char *title, void (*done)(void)) {
+    qr_open(state, title);
+    if (!qp.page) return 0;
+    qp.done = done;
+    return 1;
 }
 
 static void plate(void *canvas, int x, int y, int w, int h, unsigned color, unsigned radius) {
